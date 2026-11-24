@@ -19,14 +19,17 @@ import {
   displayDriverName,
 } from '../../../lib/db/circuits';
 import { getDriverClasses } from '../../../lib/db/lookups';
-import { getPenaltiesForSubsessions } from '../../../lib/db/penalties';
 import { getCarLogos } from '../../../lib/db/assets';
 import { getRaceLinksForSubsessions, type RaceLinks } from '../../../lib/db/rounds';
 import {
   findRoundsForLayout,
   emptyLayoutHighlights,
   getLayoutClassHighlights,
+  getLayoutExcludedRoundIds,
   layoutHighlightGroups,
+  formatPastResultDate,
+  withoutExcludedRounds,
+  withoutExcludedRoundRows,
   type LayoutRoundSummary,
   type LayoutHighlights,
 } from '../../../lib/results/layouts';
@@ -34,8 +37,10 @@ import { getAllRounds } from '../../../lib/results/rounds';
 import { getRoundLayoutsForSubsessions, type ClassBestLap } from '../../../lib/results/layoutLaps';
 import { classBestLapsFor, loadLeagueRecords } from '../../../lib/results/trackRecords';
 import { driversSelect } from '../../../lib/results/rows';
-import { describePenaltyResolution } from '../../../lib/results/standingsCore';
+import { getIncidentsForSubsessions, type IncidentRow } from '../../../lib/incidents';
 import DriverLink from '../../../components/DriverLink.astro';
+import IncidentHistory from '../../../components/IncidentHistory.astro';
+import IncidentDetailsDialog from '../../../components/IncidentDetailsDialog.astro';
 import { CATEGORY_LABELS } from '../../../lib/eventFormatting';
 import { classTagFull } from '../../../lib/classColors';
 import ClassBadge from '../../../components/ClassBadge.astro';
@@ -50,16 +55,13 @@ if (!layoutRow) {
 let circuitName = 'this layout';
 let classNameById = new Map<number, string>();
 let historicalRounds: LayoutRoundSummary[] = [];
+/** The past rounds without test and exhibition rounds (BR8.5); broadcasts and albums keep every round. */
+let pastRounds: LayoutRoundSummary[] = [];
 let highlights: LayoutHighlights = emptyLayoutHighlights();
 let classBestLaps: Map<number, ClassBestLap> = new Map();
 let guideCount = 0;
-interface IncidentEntry {
-  round: LayoutRoundSummary;
-  identityLabel: string;
-  description: string;
-  resolution: string | null;
-}
-let incidentEntries: IncidentEntry[] = [];
+/** Posted incidents at this layout outside test and exhibition rounds, in the loader's order. */
+let incidentRows: IncidentRow[] = [];
 interface MediaEntry {
   round: LayoutRoundSummary;
   raceNumber: number;
@@ -93,50 +95,29 @@ if (layoutRow) {
     );
     historicalRounds = findRoundsForLayout(allRounds, roundLayoutBySubsession, circuits, layouts, layoutRow.circuit_id, layoutRow.name);
 
-    const [layoutHighlights, leagueRecords, penalties, raceLinks] = await Promise.all([
-      getLayoutClassHighlights(supabaseEnv, historicalRounds, drivers),
+    const ids = historicalRounds.map((r) => r.subsessionId);
+    const [excludedIds, layoutHighlights, leagueRecords, rawIncidents, raceLinks] = await Promise.all([
+      // Test and exhibition rounds (BR8.5); no catch, so a failed read shows the error state (BR8.6).
+      getLayoutExcludedRoundIds(supabaseEnv, ids),
+      // Every race's winner, built exactly as the Event Briefing builds it (BR8.4).
+      getLayoutClassHighlights(supabaseEnv, historicalRounds, drivers, { allRaces: true }),
       // Class bests from the league's laps (W3, BR1.6); a failure only leaves them out.
       loadLeagueRecords(supabaseEnv).catch((err) => {
         console.error('Failed to load league track records for a layout detail; omitting class bests:', err);
         return null;
       }),
-      getPenaltiesForSubsessions(
-        supabaseEnv,
-        historicalRounds.map((r) => r.subsessionId)
-      ),
-      getRaceLinksForSubsessions(
-        supabaseEnv,
-        historicalRounds.map((r) => r.subsessionId)
-      ),
+      getIncidentsForSubsessions(supabaseEnv, ids),
+      getRaceLinksForSubsessions(supabaseEnv, ids),
     ]);
-    highlights = layoutHighlights;
+    pastRounds = withoutExcludedRoundRows(historicalRounds, excludedIds);
+    highlights = withoutExcludedRounds(layoutHighlights, excludedIds);
+    incidentRows = withoutExcludedRoundRows(rawIncidents, excludedIds);
     if (leagueRecords) {
       const classIds = driverClasses.filter((c) => c.name === 'Gamma' || c.name === 'Delta').map((c) => c.id);
       classBestLaps = classBestLapsFor(leagueRecords.league, `layout:${layoutRow.id}`, classIds, drivers, carLogos);
     }
 
-    const driverById = new Map(drivers.map((d) => [d.id, d]));
     const roundBySubsession = new Map(historicalRounds.map((r) => [r.subsessionId, r]));
-    incidentEntries = penalties
-      .map((p): IncidentEntry | null => {
-        const round = roundBySubsession.get(p.subsession_id);
-        if (!round) return null;
-        const driver = p.driver_id ? driverById.get(p.driver_id) : null;
-        const identityLabel = driver
-          ? driver.car_number !== null
-            ? `#${driver.car_number}`
-            : displayDriverName(driver.name)
-          : 'Racing Incident';
-        return {
-          round,
-          identityLabel,
-          description: p.description?.trim() || 'No description provided.',
-          resolution: describePenaltyResolution(p),
-        };
-      })
-      .filter((x): x is IncidentEntry => x !== null)
-      .sort((a, b) => b.round.startTime.localeCompare(a.round.startTime));
-
     const byRoundDesc = (a: MediaEntry, b: MediaEntry) => b.round.startTime.localeCompare(a.round.startTime);
     broadcastEntries = raceLinks
       .filter((l): l is RaceLinks & { broadcast_url: string } => l.broadcast_url !== null)
@@ -241,7 +222,10 @@ if (loadError) markUncacheable(Astro);
                       <li class="flex items-center justify-between gap-2">
                         <DriverLink id={w.driver.id} hidden={w.driver.is_hidden}>{displayDriverName(w.driver.name)}</DriverLink>
                         {/* The name goes to the driver's profile, so the race result link sits on the date. */}
-                        <a href={`/results/${w.round.subsessionId}`} class="text-white/40 hover:text-brand-primary">{formatDate(w.round.startTime)}</a>
+                        <a
+                          href={`/results/${w.round.subsessionId}${w.raceNumber > 1 ? `?session=race-${w.raceNumber}` : ''}`}
+                          class="text-white/40 hover:text-brand-primary"
+                        >{formatPastResultDate(w.round.startTime)}</a>
                       </li>
                     ))}
                   </ul>
@@ -252,7 +236,7 @@ if (loadError) markUncacheable(Astro);
                     {poles.map((p) => (
                       <li class="flex items-center justify-between gap-2">
                         <DriverLink id={p.driver.id} hidden={p.driver.is_hidden}>{displayDriverName(p.driver.name)}</DriverLink>
-                        <a href={`/results/${p.round.subsessionId}?category=qualifying`} class="text-white/40 hover:text-brand-primary">{formatDate(p.round.startTime)}</a>
+                        <a href={`/results/${p.round.subsessionId}?category=qualifying`} class="text-white/40 hover:text-brand-primary">{formatPastResultDate(p.round.startTime)}</a>
                       </li>
                     ))}
                   </ul>
@@ -270,14 +254,14 @@ if (loadError) markUncacheable(Astro);
         <span class="text-white/30 transition group-open:rotate-180">▾</span>
       </summary>
       <div class="mt-1.5">
-        {historicalRounds.length === 0 ? (
+        {pastRounds.length === 0 ? (
           <p class="text-white/40">No past rounds at this layout yet.</p>
         ) : (
           <div class="overflow-hidden rounded-lg border border-white/10">
-            {historicalRounds.map((r, i) => (
+            {pastRounds.map((r, i) => (
               <a href={`/results/${r.subsessionId}`} class={`flex items-center justify-between gap-3 p-2.5 transition hover:bg-white/5 ${i > 0 ? 'border-t border-white/10' : ''}`}>
                 <span class="font-semibold">{r.seasonLabel ?? CATEGORY_LABELS.championship}</span>
-                <span class="text-white/50">{formatDate(r.startTime)}</span>
+                <span class="text-white/50">{formatPastResultDate(r.startTime)}</span>
               </a>
             ))}
           </div>
@@ -290,30 +274,11 @@ if (loadError) markUncacheable(Astro);
         <p class="text-[11px] font-medium uppercase tracking-wide text-white/40">Past Incidents</p>
         <span class="text-white/30 transition group-open:rotate-180">▾</span>
       </summary>
-      <div class="mt-1.5">
-        {incidentEntries.length === 0 ? (
-          <p class="text-white/40">No incidents logged at this layout yet.</p>
-        ) : (
-          <div class="overflow-hidden rounded-lg border border-white/10">
-            {incidentEntries.map((inc, i) => (
-              <div class={`p-2.5 ${i > 0 ? 'border-t border-white/10' : ''}`}>
-                <div class="flex flex-wrap items-center justify-between gap-2">
-                  <span class="font-semibold text-white">{inc.identityLabel}</span>
-                  <a href={`/results/${inc.round.subsessionId}/incidents`} class="text-white/40 hover:text-white">
-                    {formatDate(inc.round.startTime)}
-                  </a>
-                </div>
-                <details class="group mt-1">
-                  <summary class="flex cursor-pointer list-none items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-white/40 hover:text-white/60">
-                    Description
-                    <span class="text-white/30 transition group-open:rotate-180">▾</span>
-                  </summary>
-                  <p class="mt-1 text-white/70">{inc.description}</p>
-                </details>
-                {inc.resolution && <p class="mt-1 text-white/50">{inc.resolution}</p>}
-              </div>
-            ))}
-          </div>
+      {/* The profile's table; each row opens this row's own popup (several layout rows may be open). */}
+      <div class="mt-1.5" data-incident-details-scope>
+        <IncidentHistory rows={incidentRows} details />
+        {incidentRows.length > 0 && (
+          <IncidentDetailsDialog rows={incidentRows} titleId={`incident-details-title-${layoutRow.id}`} />
         )}
       </div>
     </details>

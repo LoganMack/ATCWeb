@@ -13,7 +13,12 @@ import {
   resolveSupabaseEnv,
   type SupabaseEnv,
 } from '../../src/lib/db/client';
-import { getDriversBasic, getDriverById, getHallOfFameDrivers } from '../../src/lib/db/drivers';
+import {
+  getDriversBasic,
+  getDriverById,
+  getHallOfFameDrivers,
+  getShownDriversByIds,
+} from '../../src/lib/db/drivers';
 import { getAllNewsPostDrivers, getDriversForPost } from '../../src/lib/db/news';
 import { getAllMeetupDriverLinks } from '../../src/lib/db/media';
 import { getPenaltiesForDriver, getPenaltiesForSubsession } from '../../src/lib/db/penalties';
@@ -28,6 +33,9 @@ import { driversSelect } from '../../src/lib/results/rows';
 import { getQualifyingForSubsession } from '../../src/lib/results/sessions';
 import { findProfileDriver, loadDriverAwards, loadDriverPage } from '../../src/lib/driverPage/load';
 import { RequestMemo } from '../../src/lib/requestMemo';
+import { ROUND_WET_FLAGS_SELECT } from '../../src/lib/db/events';
+import embedReads from '../../src/lib/embedReads.json';
+import { EMBED_FILTERS } from '../../supabase/tools/check-view-embeds.mjs';
 
 const blocked = globalThis.fetch;
 afterEach(() => {
@@ -212,6 +220,53 @@ describe('public readers use the masked views with the same columns (BR9.14, NFR
   });
 });
 
+describe('Lineup Changes names (lineup-changes BR1.15, NFR3.1)', () => {
+  it('reads drivers_shown with the pinned select in one call, and nothing for no ids', async () => {
+    const calls = stubFetch();
+    await getShownDriversByIds(anonEnv(), []);
+    expect(calls).toHaveLength(0);
+    await getShownDriversByIds(anonEnv(), [DRIVER_ID, 'a b', DRIVER_ID]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].table).toBe('drivers_shown');
+    expect(calls[0].select).toBe('id,name,car_number,is_hidden');
+    expect(calls[0].select).toBe(privacyReads.lineupDrivers.select);
+    expect(calls[0].path).toContain(`&id=in.(${DRIVER_ID},a b)`);
+    expect(privacyReads.lineupDrivers).toMatchObject({
+      path: 'drivers_shown',
+      embeds: [],
+      callers: ['anon', 'admin'],
+    });
+  });
+});
+
+describe('public embed reads checked in CI (driver-splits NFR3.3, NFR7.7)', () => {
+  it('gives every embedReads.json entry a seed filter, and pins the wet-flags entry', () => {
+    for (const name of Object.keys(embedReads)) expect(EMBED_FILTERS).toHaveProperty(name);
+    expect(embedReads.raceWetFlags).toMatchObject({
+      path: 'curated_rounds',
+      embeds: ['linked', 'pinned'],
+      callers: ['anon', 'admin'],
+    });
+  });
+
+  it('pins the Series iRating timeline entry (irating-chart NFR3.3, NFR7.8)', () => {
+    expect(embedReads.ratingTimelineRounds).toMatchObject({
+      path: 'curated_rounds',
+      embeds: ['season', 'event', 'pinned_events'],
+      callers: ['anon', 'admin'],
+    });
+  });
+
+  it('pins the past-results round events entry (past-results NFR3.2, NFR7.7)', () => {
+    expect(embedReads.pastResultsRoundEvents).toMatchObject({
+      path: 'curated_rounds',
+      embeds: ['event', 'pinned_events'],
+      callers: ['anon', 'admin'],
+    });
+    expect(EMBED_FILTERS).toHaveProperty('pastResultsRoundEvents');
+  });
+});
+
 describe('results join through the stand-in customer id (BR9.4, F2 A)', () => {
   it('pairs a hidden driver’s masked row with its roster driver and keeps the unrostered fallback', async () => {
     const hidden = {
@@ -313,6 +368,69 @@ describe('the signed-in profile and the private profile (BR9.11, BR9.12)', () =>
       );
     expect(heavy).toEqual([]);
     expect(error).not.toHaveBeenCalled();
+  });
+
+  it('reads layouts from the view and wet flags in one call, and a failed wet read is no load error (driver-splits NFR1.1, NFR2.2, NFR3.2)', async () => {
+    const driver = {
+      id: DRIVER_ID,
+      name: 'Public Driver',
+      iracing_cust_id: 777,
+      is_hall_of_fame: false,
+      profile_private: false,
+      is_ai: false,
+    };
+    const race = {
+      subsession_id: 1,
+      race_number: 1,
+      driver_id: DRIVER_ID,
+      season_id: 's1',
+      class_id: 1,
+      team_id: null,
+      finish_position: 1,
+      classified: true,
+      dsq: false,
+      raw_position: 1,
+      shown_set: 'raw',
+      shown_position: 1,
+      shown_class_position: 1,
+    };
+    const raw = { subsession_id: 1, race_number: 1, cust_id: 777, finish_position: 1, laps_complete: 5 };
+    const answer = (table: string) => {
+      if (table === 'drivers_shown') return [driver];
+      if (table === 'race_score_results_public') return [race];
+      if (table === 'curated_race_results_shown') return [raw];
+      return [];
+    };
+    const run = async (wetStatus: number) => {
+      const calls: Call[] = [];
+      globalThis.fetch = (async (input: string) => {
+        const url = new URL(String(input));
+        const path = decodeURIComponent(url.pathname.split('/rest/v1/')[1] + url.search);
+        const table = path.split('?')[0];
+        const select = url.searchParams.get('select') ?? '';
+        calls.push({ path, table, select, auth: null });
+        if (table === 'curated_rounds' && select === ROUND_WET_FLAGS_SELECT && wetStatus !== 200)
+          return new Response('upstream failure', { status: wetStatus });
+        return new Response(JSON.stringify(answer(table)), { status: 200 });
+      }) as unknown as typeof fetch;
+      return { calls, page: await loadDriverPage(anonEnv(), DRIVER_ID) };
+    };
+
+    const ok = await run(200);
+    const tables = ok.calls.map((c) => c.table);
+    expect(tables).toContain('circuit_layouts_shown');
+    expect(tables).not.toContain('circuit_layouts');
+    expect(
+      ok.calls.filter((c) => c.table === 'curated_rounds' && c.select === ROUND_WET_FLAGS_SELECT),
+    ).toHaveLength(1);
+    expect(ok.page.raceHistory).toHaveLength(1);
+    expect(ok.page.raceHistory[0].wetAffected).toBe(false);
+
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const failed = await run(500);
+    expect(failed.page.loadError).toBeNull();
+    expect(failed.page.raceHistory).toHaveLength(1);
+    expect(failed.page.raceHistory[0].wetAffected).toBeNull();
   });
 
   it('asks drivers_shown for profile_private in the driver check', async () => {

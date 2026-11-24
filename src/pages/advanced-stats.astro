@@ -20,9 +20,12 @@ import {
   ADVANCED_VIEWS,
   calculatorFragmentQuery,
   calculatorQuery,
+  lineupQuery,
   ratingQuery,
   resolveAdvancedView,
 } from '../lib/advancedStatsViews';
+import { getAllTeamRosters, type TeamRosterEntry } from '../lib/db/teams';
+import { resolveLineupSeason } from '../lib/lineups/classify';
 import {
   availableChampionships,
   calculatorSeasons,
@@ -32,21 +35,25 @@ import {
 import { CHAMPIONSHIP_LABELS } from '../lib/calculator/types';
 import { RATING_KIND_LABELS, RATING_KINDS, resolveRatingKind } from '../lib/db/seriesRatings';
 
-// Advanced Stats (FR1, FR4): three views behind one View select. Compare reads its drivers, teams and cars from
+// Advanced Stats (FR1, FR4): four views behind one View select. Compare reads its drivers, teams and cars from
 // advanced-stats/fragment.astro; Points Contenders reads the calculator fragment
 // (advanced-stats/points/fragment.astro), drawn by src/scripts/pointsCalculator.ts, whose Scenario Editor
 // button sits in this filter card; Series iRating reads advanced-stats/ratings/fragment.astro, searched from
-// this filter card. The shell reads only the filter lists. Compare's slot picks (a-d) live only in the address
+// this filter card; Lineup Changes reads advanced-stats/lineups/fragment.astro, highlighted by
+// src/scripts/lineupBoard.ts. The shell reads only the filter lists. Compare's slot picks (a-d) live only in the address
 // and the browser, so its selects carry them through compareView.ts (data-compare-nav).
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+// Read from the address only, so it can decide which reads the shell makes.
+const view = resolveAdvancedView(Astro.url.searchParams.get('view'));
 
 let classes: Awaited<ReturnType<typeof getDriverClasses>> = [];
 let seasons: Season[] = [];
 let loadError: string | null = null;
 let bannerUrl: string | null = null;
+let lineupRosters: TeamRosterEntry[] = [];
 try {
-  [classes, seasons, bannerUrl] = await Promise.all([
+  [classes, seasons, bannerUrl, lineupRosters] = await Promise.all([
     getDriverClasses(supabaseEnv),
     getSeasons(supabaseEnv),
     // The banner (FR6.3) is decoration: a failed read shows no banner rather than the load error.
@@ -56,13 +63,14 @@ try {
         console.error('Failed to load page banner:', err);
         return null;
       }),
+    // Lineup Changes only: which seasons have rosters decides its default season (BR1.4).
+    view === 'lineups' ? getAllTeamRosters(supabaseEnv) : Promise.resolve([]),
   ]);
 } catch (err) {
   console.error('Failed to load advanced stats filters:', err);
   loadError = err instanceof Error ? err.message : String(err);
 }
 
-const view = resolveAdvancedView(Astro.url.searchParams.get('view'));
 const seasonParam = Astro.url.searchParams.get('season');
 const classParam = Astro.url.searchParams.get('class');
 
@@ -99,10 +107,23 @@ const ratingOptions = RATING_KINDS.map((kind) => ({
 }));
 const ratingsFragmentUrl = `/advanced-stats/ratings/fragment${ratingQuery(ratingKind, false)}`;
 
+// Lineup Changes' season (BR1.2 to BR1.4): passed to the fragment explicitly, so the select and the board agree.
+const lineupSeason =
+  view === 'lineups'
+    ? resolveLineupSeason(seasonParam, seasons, new Set(lineupRosters.map((r) => r.season_id)))
+    : null;
+const lineupSeasonOptions = seasons.map((s) => ({
+  season: s,
+  href: `/advanced-stats${lineupQuery(s.number)}`,
+  selected: s.id === lineupSeason?.id,
+}));
+const lineupsFragmentUrl = `/advanced-stats/lineups/fragment${lineupQuery(lineupSeason?.number ?? null, false)}`;
+
 const viewHref: Record<(typeof ADVANCED_VIEWS)[number], string> = {
   compare: view === 'compare' ? `/advanced-stats${query}` : '/advanced-stats',
   contenders: `/advanced-stats${calculatorQuery(calcSeason?.number ?? null, championship)}`,
   irating: `/advanced-stats${ratingQuery(ratingKind)}`,
+  lineups: `/advanced-stats${lineupQuery(null)}`,
 };
 const viewOptions = ADVANCED_VIEWS.map((v) => ({ value: v, label: ADVANCED_VIEW_LABELS[v], href: viewHref[v] }));
 // Each season option carries its logo for the dropdown (scripts/logoSelect.ts); All has none.
@@ -116,7 +137,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 if (loadError) markUncacheable(Astro);
 ---
 
-<Layout title="Advanced Stats" description="Compare drivers, teams and cars, see who can still win the championship, and the Series iRating of every Alpha Touring Challenge driver.">
+<Layout title="Advanced Stats" description="Compare drivers, teams and cars, see who can still win the championship, the Series iRating of every Alpha Touring Challenge driver, and how team lineups changed.">
   <section class="relative mx-auto max-w-6xl px-6 pb-24 pt-8">
     <PageBanner imageUrl={bannerUrl} />
     <h1 class="reveal font-display text-2xl sm:text-5xl">Advanced Stats</h1>
@@ -130,17 +151,6 @@ if (loadError) markUncacheable(Astro);
       >
         <div class="flex flex-wrap items-end gap-3">
           <StatsTabs active="advanced" />
-          {view === 'irating' && (
-            <input
-              type="search"
-              aria-label="Search drivers"
-              placeholder="Search drivers…"
-              autocomplete="off"
-              class="search-input h-9 rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5"
-              data-rating-search
-              data-testid="rating-search"
-            />
-          )}
           <label class="flex flex-col gap-1.5 sm:w-48">
             <span class={labelClass}>View</span>
             {view === 'compare' && (
@@ -158,6 +168,17 @@ if (loadError) markUncacheable(Astro);
               </select>
             )}
           </label>
+          {view === 'irating' && (
+            <input
+              type="search"
+              aria-label="Search drivers"
+              placeholder="Search drivers…"
+              autocomplete="off"
+              class="search-input h-9 rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5"
+              data-rating-search
+              data-testid="rating-search"
+            />
+          )}
 
           {view === 'compare' && <ClassFilterSelect options={classOptions} compareNav />}
           {view === 'compare' && (
@@ -214,6 +235,17 @@ if (loadError) markUncacheable(Astro);
               </select>
             </label>
           )}
+
+          {view === 'lineups' && (
+            <label class="flex flex-col gap-1.5 sm:w-44">
+              <span class={labelClass}>Season</span>
+              <select aria-label="Season" class={selectClass} data-navigate-on-change data-logo-select data-testid="lineup-season-select">
+                {lineupSeasonOptions.map((o) => (
+                  <option value={o.href} selected={o.selected} {...seasonOptionAttrs(o.season)} class="bg-brand-ink text-white">{o.season.name}</option>
+                ))}
+              </select>
+            </label>
+          )}
         </div>
       </div>
     )}
@@ -251,6 +283,17 @@ if (loadError) markUncacheable(Astro);
         </div>
       </div>
     )}
+
+    {!loadError && view === 'lineups' && (
+      <div data-lineups-view data-fragment-url={lineupsFragmentUrl}>
+        <div class="mt-6 space-y-1" aria-live="polite" aria-busy="true">
+          <span class="sr-only">Loading the lineups…</span>
+          {[0, 1, 2, 3, 4, 5].map(() => (
+            <div class="h-9 animate-pulse rounded-md border border-white/10 bg-white/[0.02]"></div>
+          ))}
+        </div>
+      </div>
+    )}
   </section>
 
   <script>
@@ -259,6 +302,7 @@ if (loadError) markUncacheable(Astro);
     import '../scripts/logoSelect';
     import '../scripts/pointsCalculator';
     import '../scripts/seriesRatings';
+    import '../scripts/lineupBoard';
 
     bindFragment('[data-compare-view]', {
       label: 'Advanced stats',
@@ -277,6 +321,12 @@ if (loadError) markUncacheable(Astro);
       logMessage: 'Failed to load the Series iRating:',
       errorHtml:
         '<p class="mt-10 text-white/60">Couldn’t load the Series iRating right now — try refreshing the page.</p>',
+    });
+    bindFragment('[data-lineups-view]', {
+      label: 'Lineup Changes',
+      logMessage: 'Failed to load the lineups:',
+      errorHtml:
+        '<p class="mt-10 text-white/60">Couldn’t load the lineups right now — try refreshing the page.</p>',
     });
   </script>
 </Layout>

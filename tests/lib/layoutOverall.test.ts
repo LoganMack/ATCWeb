@@ -118,8 +118,8 @@ describe('buildLayoutHighlights overall entries (BR3.9)', () => {
     ];
     const all = buildLayoutHighlights([rounds[0]], drivers, sprint, [], true);
     expect(all.overallWinners.map((w) => [w.raceNumber, w.raceCount, w.driver.id])).toEqual([
-      [1, 2, 'a1'],
       [2, 2, 'g1'],
+      [1, 2, 'a1'],
     ]);
     expect(all.overallPoles).toEqual([]);
   });

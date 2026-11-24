@@ -1,4 +1,5 @@
 import { shortDriverName } from '../db/circuits';
+import { LAYOUT_CATEGORY_LABELS, LAYOUT_CATEGORY_ORDER } from '../circuitCategory';
 import type { IncidentRow } from '../incidents';
 import type { DriverRaceHistoryRow } from '../results/raceHistory';
 
@@ -47,7 +48,8 @@ export function incidentDriverLabel(row: IncidentRow): string {
     : shortDriverName(row.driver.name);
 }
 
-// --- Splits: race history regrouped by Month, Round bucket and Car, with no extra fetch.
+// --- Splits: race history regrouped by Month, Round bucket, Car, Team, Layout, Weather and Track Type, with no
+// extra fetch beyond the race history's own reads.
 // Starts count every row; Wins, Podiums, Top 5s and Avg Finish exclude DSQ rows (their position is only a
 // display fallback) but keep unclassified ones.
 export interface SplitRow {
@@ -151,6 +153,12 @@ export function roundBucketLabel(n: number): string {
   if (n <= 9) return ROUND_BUCKETS[2];
   return ROUND_BUCKETS[3];
 }
+
+/** Weather split rows, in this order (BR1.1). */
+export const WEATHER_LABELS = ['Dry', 'Wet'];
+
+/** Track Type split rows in the shared category order, so the list lives only in circuitCategory.ts (BR1.6). */
+export const TRACK_TYPE_LABELS = LAYOUT_CATEGORY_ORDER.map((c) => LAYOUT_CATEGORY_LABELS[c]);
 
 // Initial alphabetical order for splits with no natural order; every column is also click-to-sort.
 export function buildUnorderedRows(

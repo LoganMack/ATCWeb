@@ -5,6 +5,15 @@ import { resolveSupabaseEnv } from '../lib/db/client';
 import { getSeasons } from '../lib/db/seasons';
 import { resizedImageUrl } from '../lib/db/drivers';
 import { getLiveBannerInfo } from '../lib/liveEvent';
+// Frontmatter only: navMenu reads the Advanced Stats view registry, which must stay out of the browser bundle.
+import {
+  ADVANCED_SIDE_MENU,
+  DRIVERS_SIDE_MENU,
+  TEAMS_SIDE_MENU,
+  sideMenuId,
+  sideMenuToggleLabel,
+  type NavSideItem,
+} from '../lib/navMenu';
 import SeasonLogo from './SeasonLogo.astro';
 
 const { redbubbleUrl } = resolveSiteLinks(Astro.locals);
@@ -55,13 +64,14 @@ const showAdminLink = isAdminView(Astro.locals);
 
 // `menu` = a hover dropdown on the desktop nav, and a headed group of chips in the phone menu, which lists every
 // entry (BR4.1). `mobile` marks the entries no other page links to on a phone.
+// `submenu` = a side menu beside the item on the desktop dropdown only; the phone menu ignores it (BR1.12).
 // `rounds` = the Results menu, whose rounds are fetched from /api/nav-rounds the first time it's hovered (see
 // the script below).
 type NavLink = {
   href: string;
   label: string;
   external?: boolean;
-  menu?: { href: string; label: string; mobile?: boolean }[];
+  menu?: { href: string; label: string; mobile?: boolean; submenu?: readonly NavSideItem[] }[];
   rounds?: boolean;
 };
 const links: NavLink[] = [
@@ -80,8 +90,8 @@ const links: NavLink[] = [
     href: '/standings',
     label: 'Standings',
     menu: [
-      { href: '/standings?championship=drivers', label: 'Drivers' },
-      { href: '/standings?championship=teams', label: 'Teams' },
+      { href: '/standings?championship=drivers', label: 'Drivers', submenu: DRIVERS_SIDE_MENU },
+      { href: '/standings?championship=teams', label: 'Teams', submenu: TEAMS_SIDE_MENU },
     ],
   },
   // Roster and Stats (BR6.2, BR6.3; cars-overall-compare BR1.1-BR1.3): on phones the pages behind their own
@@ -103,7 +113,7 @@ const links: NavLink[] = [
       { href: '/team-stats', label: 'Teams', mobile: true },
       { href: '/season-stats', label: 'Seasons', mobile: true },
       { href: '/circuits', label: 'Circuits', mobile: true },
-      { href: '/advanced-stats', label: 'Advanced', mobile: true },
+      { href: '/advanced-stats', label: 'Advanced', mobile: true, submenu: ADVANCED_SIDE_MENU },
     ],
   },
   {
@@ -168,9 +178,43 @@ const PHONE_CHIP =
             </a>
             <div class="invisible absolute left-0 top-full z-50 -ml-3 pt-3 opacity-0 transition duration-150 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
               <div class="min-w-[11rem] rounded-[10px] border border-white/10 bg-brand-ink p-1.5 font-sans text-sm not-italic normal-case tracking-normal shadow-xl">
-                {link.menu?.map((item) => (
-                  <a href={item.href} class="block whitespace-nowrap rounded-md px-3 py-2 text-white/80 transition hover:bg-white/[0.06] hover:text-white">{item.label}</a>
-                ))}
+                {link.menu?.map((item) =>
+                  item.submenu ? (
+                    // A side menu (nav-side-menus BR1.1-BR1.11). The named group keeps the outer dropdown's hover
+                    // from opening every side panel at once; the script adds the keyboard, click and flip, and
+                    // `dismissed` (important) beats hover so Escape hides the panel under the pointer.
+                    <div class="group/side relative flex items-stretch rounded-md hover:bg-white/[0.06]" data-nav-side>
+                      <a href={item.href} class="flex-1 whitespace-nowrap rounded-md px-3 py-2 text-white/80 transition hover:text-white" data-nav-side-parent>{item.label}</a>
+                      <button
+                        type="button"
+                        class="flex w-8 items-center justify-center rounded-md text-white/40 transition hover:text-white"
+                        aria-expanded="false"
+                        aria-controls={sideMenuId(link.label, item.label)}
+                        aria-label={sideMenuToggleLabel(link.label, item.label)}
+                        data-nav-side-toggle
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4" aria-hidden="true">
+                          <path d="m9 18 6-6-6-6" />
+                        </svg>
+                      </button>
+                      <div
+                        id={sideMenuId(link.label, item.label)}
+                        role="group"
+                        aria-label={`${item.label} ${link.label}`}
+                        data-nav-side-panel
+                        class="invisible absolute left-full top-0 z-50 -mt-1.5 pl-1.5 opacity-0 transition-[opacity,visibility] duration-150 group-hover/side:visible group-hover/side:opacity-100 group-data-[open]/side:visible group-data-[open]/side:opacity-100 group-data-[dismissed]/side:!invisible group-data-[dismissed]/side:!opacity-0 group-data-[flip]/side:left-auto group-data-[flip]/side:right-full group-data-[flip]/side:pl-0 group-data-[flip]/side:pr-1.5"
+                      >
+                        <div class="min-w-[11rem] rounded-[10px] border border-white/10 bg-brand-ink p-1.5 shadow-xl">
+                          {item.submenu.map((side) => (
+                            <a href={side.href} class="block whitespace-nowrap rounded-md px-3 py-2 text-white/80 transition hover:bg-white/[0.06] hover:text-white" data-nav-side-link>{side.label}</a>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <a href={item.href} class="block whitespace-nowrap rounded-md px-3 py-2 text-white/80 transition hover:bg-white/[0.06] hover:text-white">{item.label}</a>
+                  )
+                )}
                 {link.rounds && (
                   <div data-nav-rounds class="max-h-80 min-w-[17rem] overflow-y-auto">
                     <p class="px-3 py-2 text-white/40">Loading…</p>
@@ -436,6 +480,9 @@ const PHONE_CHIP =
 <script>
   // Admin gear badge (#64) and notifications bell (U3): one /api/nav-status request per page fills both.
   import '../scripts/notificationsBell';
+  // Desktop side menus: keyboard, click and flip; binds itself on astro:page-load (nav-side-menus BR1.7-BR1.11).
+  import '../scripts/navSideMenus';
+  import { truncateLabel } from '../lib/truncateLabel';
 
   function initMobileNav() {
     const toggle = document.getElementById('mobile-nav-toggle');
@@ -500,9 +547,16 @@ const PHONE_CHIP =
         num.textContent = `Round ${r.round}`;
         a.appendChild(num);
       }
+      // Long track names are cut at 20 visible characters; a cut link keeps the full name for hover and
+      // screen readers (BR1.13, BR1.14).
+      const label = truncateLabel(r.track);
       const track = document.createElement('span');
-      track.textContent = r.track;
+      track.textContent = label.text;
       a.appendChild(track);
+      if (label.truncated) {
+        a.title = r.track;
+        a.setAttribute('aria-label', r.round !== null ? `Round ${r.round} ${r.track}` : r.track);
+      }
       list.appendChild(a);
     }
   }

@@ -158,8 +158,8 @@ describe('cacheKeyUrl', () => {
     );
   });
 
-  it('keys the three Advanced Stats views and the calculator championship on the shell (points-calc FR1)', () => {
-    for (const view of ['compare', 'contenders', 'irating']) {
+  it('keys the four Advanced Stats views and the calculator championship on the shell (points-calc FR1)', () => {
+    for (const view of ['compare', 'contenders', 'irating', 'lineups']) {
       expect(cacheKeyUrl(new URL(`https://x.test/advanced-stats?view=${view}`))).toBe(
         `https://x.test/advanced-stats?view=${view}`,
       );
@@ -181,6 +181,26 @@ describe('cacheKeyUrl', () => {
       expect(
         cacheKeyUrl(new URL(`https://x.test/advanced-stats?view=contenders&championship=${value}`)),
       ).toBe('https://x.test/advanced-stats?view=contenders');
+    }
+  });
+
+  it('keys Lineup Changes on the shell with its season, so it never shares the Compare copy (lineup-changes BR1.1)', () => {
+    expect(cacheKeyUrl(new URL('https://x.test/advanced-stats?view=lineups&season=18&x=1'))).toBe(
+      'https://x.test/advanced-stats?season=18&view=lineups',
+    );
+  });
+
+  it('keys the lineups fragment on a canonical season number only (lineup-changes NFR2.2)', () => {
+    expect(
+      cacheKeyUrl(
+        new URL('https://x.test/advanced-stats/lineups/fragment?season=18&view=lineups&class=Alpha'),
+      ),
+    ).toBe('https://x.test/advanced-stats/lineups/fragment?season=18');
+    for (const value of ['all', 'abc', '018', '0', '']) {
+      expect(
+        cacheKeyUrl(new URL(`https://x.test/advanced-stats/lineups/fragment?season=${value}`)),
+        value,
+      ).toBe('https://x.test/advanced-stats/lineups/fragment');
     }
   });
 

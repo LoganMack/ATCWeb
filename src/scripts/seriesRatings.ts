@@ -3,11 +3,11 @@
  * filter card, and each row's history chart, opened by the row's toggle button. Everything runs in the browser
  * over the rows the advanced-stats/ratings fragment rendered; a row's history is fetched once, the first time
  * it opens (advanced-stats/ratings/history), so the list never carries it. A hidden driver's row is already
- * named "Hidden Driver" and keyed by a stand-in, so the search and the history can only ever use those. The
- * sort, search and request rules are plain functions so the tests run them without a DOM.
+ * named "Hidden Driver" and keyed by a stand-in, so the search and the history can only ever use those. Every
+ * chart gets the fragment's slot list. The rules are plain functions so the tests run them without a DOM.
  */
-import type { RatingHistoryPoint } from '../lib/db/seriesRatings';
-import { renderHistoryChart } from './ratingHistoryChart';
+import type { TimelineSlot } from '../lib/rating/timeline';
+import { renderHistoryChart, type ChartPoint } from './ratingHistoryChart';
 
 export type RatingSortKey = 'rank' | 'name' | 'current' | 'last' | 'min' | 'max' | 'races';
 export type SortDirection = 'ascending' | 'descending';
@@ -71,18 +71,54 @@ export function historyUrl(ratingClass: string, driverKey: string): string {
   return `/advanced-stats/ratings/history?${params.toString()}`;
 }
 
-/** The steps from the route's JSON, or null when it is not the expected shape. */
-export function parseHistory(body: unknown): RatingHistoryPoint[] | null {
+/**
+ * The steps from the route's JSON, or null when it is not the expected shape. A step keeps i (its round) only
+ * when it is an integer and n (races in the round) only when it is an integer of at least 1; otherwise the key
+ * is left out, and the chart falls back to even spacing.
+ */
+export function parseHistory(body: unknown): ChartPoint[] | null {
   const steps = (body as { steps?: unknown } | null)?.steps;
   if (!Array.isArray(steps)) return null;
-  return steps.filter(
-    (s): s is RatingHistoryPoint =>
-      typeof s === 'object' &&
-      s !== null &&
-      typeof s.v === 'number' &&
-      typeof s.p === 'number' &&
-      typeof s.d === 'string',
+  return steps
+    .filter(
+      (s): s is ChartPoint & { i?: unknown; n?: unknown } =>
+        typeof s === 'object' &&
+        s !== null &&
+        typeof s.v === 'number' &&
+        typeof s.p === 'number' &&
+        typeof s.d === 'string',
+    )
+    .map((s) => {
+      const { i, n, ...rest } = s;
+      const point: ChartPoint = rest;
+      if (Number.isInteger(i)) point.i = i as number;
+      if (Number.isInteger(n) && (n as number) >= 1) point.n = n as number;
+      return point;
+    });
+}
+
+/**
+ * The fragment's slot list, or null when it is missing, malformed or empty, so the chart falls back to even
+ * spacing rather than drawing nothing (BR1.13). Extra keys are dropped.
+ */
+export function parseTimeline(text: string | null | undefined): TimelineSlot[] | null {
+  if (!text) return null;
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(value) || value.length === 0) return null;
+  const valid = value.every(
+    (item) =>
+      typeof item === 'object' &&
+      item !== null &&
+      Number.isInteger((item as { i?: unknown }).i) &&
+      typeof (item as { s?: unknown }).s === 'string',
   );
+  if (!valid) return null;
+  return (value as TimelineSlot[]).map(({ i, s }) => ({ i, s }));
 }
 
 interface Entry extends RatingEntry {
@@ -119,7 +155,11 @@ function setOpen(e: Entry, open: boolean): void {
   e.detail.hidden = !open;
 }
 
-async function loadHistory(section: HTMLElement, e: Entry): Promise<void> {
+async function loadHistory(
+  section: HTMLElement,
+  e: Entry,
+  timeline: readonly TimelineSlot[] | null,
+): Promise<void> {
   const chart = e.detail?.querySelector<HTMLElement>('[data-rating-chart]');
   if (!chart) return;
   e.loaded = true;
@@ -138,7 +178,7 @@ async function loadHistory(section: HTMLElement, e: Entry): Promise<void> {
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const steps = parseHistory(await response.json());
     if (!steps) throw new Error('Unexpected rating history');
-    renderHistoryChart(chart, steps, { name: e.name, kindLabel });
+    renderHistoryChart(chart, steps, { name: e.name, kindLabel, timeline });
   } catch (err) {
     console.error('Failed to load a Series iRating history:', err);
     e.loaded = false;
@@ -147,7 +187,7 @@ async function loadHistory(section: HTMLElement, e: Entry): Promise<void> {
       className: 'btn btn-sm ml-2',
       textContent: 'Try again',
     });
-    retry.addEventListener('click', () => void loadHistory(section, e));
+    retry.addEventListener('click', () => void loadHistory(section, e, timeline));
     const message = Object.assign(document.createElement('p'), {
       className: 'text-sm text-white/60',
       textContent: 'Couldn’t load the rating history.',
@@ -173,6 +213,7 @@ function bindTable(section: HTMLElement): void {
   const noMatch = section.querySelector<HTMLElement>('[data-rating-no-match]');
   const noMatchText = section.querySelector<HTMLElement>('[data-rating-no-match-text]');
   const wrap = section.querySelector<HTMLElement>('[data-rating-table-wrap]');
+  const timeline = parseTimeline(section.querySelector('script[data-rating-timeline]')?.textContent);
   let sort: { key: RatingSortKey; direction: SortDirection } = { key: 'current', direction: 'descending' };
 
   const applySort = () => {
@@ -210,7 +251,7 @@ function bindTable(section: HTMLElement): void {
     if (e) {
       const open = toggle!.getAttribute('aria-expanded') !== 'true';
       setOpen(e, open);
-      if (open && !e.loaded) void loadHistory(section, e);
+      if (open && !e.loaded) void loadHistory(section, e, timeline);
       return;
     }
     const key = target.closest<HTMLElement>('button[data-sort]')?.dataset.sort;

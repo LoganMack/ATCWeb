@@ -76,5 +76,11 @@
     "select": "kind,driver_key,race_started_at,subsession_id,race_number,round_races,season_number,season_name,track_name,position,field_size,rating_after",
     "embeds": [],
     "callers": ["anon", "admin"]
+  },
+  "lineupDrivers": {
+    "path": "drivers_shown",
+    "select": "id,name,car_number,is_hidden",
+    "embeds": [],
+    "callers": ["anon", "admin"]
   }
 }

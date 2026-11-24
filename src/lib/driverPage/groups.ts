@@ -1,4 +1,5 @@
 import { formatLapTime, displayLayoutName } from '../db/circuits';
+import { isLayoutCategory, LAYOUT_CATEGORY_LABELS } from '../circuitCategory';
 import type { DriverRaceHistoryRow } from '../results/raceHistory';
 import {
   classTrackRecord,
@@ -18,6 +19,8 @@ import {
   ROUND_BUCKETS,
   roundBucketLabel,
   buildUnorderedRows,
+  TRACK_TYPE_LABELS,
+  WEATHER_LABELS,
   type AwardEntry,
   type AwardGroup,
   type BestsFilterCell,
@@ -114,6 +117,24 @@ export function buildDriverPageGroups(
     layoutGroups.get(label)!.push(r);
   }
 
+  // Weather split: a race with unknown wet flags (a failed read) is left out, so Weather never fakes Dry.
+  const weatherGroups = new Map<string, DriverRaceHistoryRow[]>();
+  for (const r of raceHistory) {
+    if (r.wetAffected !== true && r.wetAffected !== false) continue;
+    const label = r.wetAffected ? 'Wet' : 'Dry';
+    if (!weatherGroups.has(label)) weatherGroups.set(label, []);
+    weatherGroups.get(label)!.push(r);
+  }
+
+  // Track Type split: only races on a categorised layout; the rest still count in Layout and Weather.
+  const trackTypeGroups = new Map<string, DriverRaceHistoryRow[]>();
+  for (const r of raceHistory) {
+    if (!isLayoutCategory(r.layoutCategory)) continue;
+    const label = LAYOUT_CATEGORY_LABELS[r.layoutCategory];
+    if (!trackTypeGroups.has(label)) trackTypeGroups.set(label, []);
+    trackTypeGroups.get(label)!.push(r);
+  }
+
   // Car split rows additionally carry the car's own logo, for the small logo
   // shown to the left of the car name in that split specifically.
   function buildCarRows(
@@ -144,6 +165,11 @@ export function buildDriverPageGroups(
     { name: 'Car', rows: buildCarRows(overallPos, overallQualPos) },
     { name: 'Team', rows: buildTeamRows(overallPos, overallQualPos) },
     { name: 'Layout', rows: buildUnorderedRows(layoutGroups, overallPos, overallQualPos) },
+    { name: 'Weather', rows: buildSplitRows(weatherGroups, overallPos, overallQualPos, WEATHER_LABELS) },
+    {
+      name: 'Track Type',
+      rows: buildSplitRows(trackTypeGroups, overallPos, overallQualPos, TRACK_TYPE_LABELS),
+    },
   ];
   const splitGroupsClass: SplitGroup[] = [
     { name: 'Month', rows: buildSplitRows(monthGroups, classPos, classQualPos, MONTH_NAMES) },
@@ -151,6 +177,8 @@ export function buildDriverPageGroups(
     { name: 'Car', rows: buildCarRows(classPos, classQualPos) },
     { name: 'Team', rows: buildTeamRows(classPos, classQualPos) },
     { name: 'Layout', rows: buildUnorderedRows(layoutGroups, classPos, classQualPos) },
+    { name: 'Weather', rows: buildSplitRows(weatherGroups, classPos, classQualPos, WEATHER_LABELS) },
+    { name: 'Track Type', rows: buildSplitRows(trackTypeGroups, classPos, classQualPos, TRACK_TYPE_LABELS) },
   ];
 
   // --- Bests: one row per layout (the same grouping as the Layout split), the driver's fastest lap there

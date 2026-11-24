@@ -79,7 +79,9 @@ describe('FR3 and FR4: profile Races and Incidents tables', () => {
     fragment.indexOf('data-driver-panel="races"'),
     fragment.indexOf('data-driver-panel="splits"'),
   );
-  const incidents = fragment.slice(fragment.indexOf('data-driver-panel="incidents"'));
+  const profileIncidents = fragment.slice(fragment.indexOf('data-driver-panel="incidents"'));
+  // The table moved into IncidentHistory (past-results BR8.9), which the profile renders.
+  const incidents = code(source('/src/components/IncidentHistory.astro'));
 
   it('shows no date under the Races round link (FR3)', () => {
     expect(races).toContain('data-col="round"');
@@ -87,6 +89,9 @@ describe('FR3 and FR4: profile Races and Incidents tables', () => {
   });
 
   it('puts a sortable Date column before Round, and labels the round "ATCX, Round X" (FR4)', () => {
+    expect(profileIncidents).toContain(
+      '<IncidentHistory rows={driverIncidents} highlightDriverId={driverId} />',
+    );
     expect(incidents.indexOf('data-sort-key="date"')).toBeGreaterThan(-1);
     expect(incidents.indexOf('data-sort-key="date"')).toBeLessThan(
       incidents.indexOf('data-sort-key="round"'),

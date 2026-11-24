@@ -1,7 +1,7 @@
 /**
  * Points Contenders in the browser (src/scripts/pointsCalculatorModel.ts, pointsCalculatorView.ts,
  * pointsCalculatorEditor.ts, pointsCalculator.ts; FR2-FR4, FR8, NFR3): an edit moves the bars, Undo and Reset,
- * the status tags and the needs column, the per-race segments of the current total, the typed-points rule that
+ * the status tags, the Pts column and the Best Possible label, the per-race segments of the current total, the typed-points rule that
  * disables Apply, the team editor's top-two re-pick, the bars' markup (one Leader's Floor line), the Scenario
  * Editor popup (a draft until Save, dropped on Close or Escape, Reset clearing every edit), and a full
  * recompute for 60 drivers over 12 rounds inside 100 ms. Vitest runs in Node with no DOM, so the markup and
@@ -121,16 +121,16 @@ describe('the edit set', () => {
   it('moves the bars after an edit, and Undo puts them back', () => {
     const state = createState(BASE);
     const before = barViews(state, recompute(state));
-    expect(before.map((b) => [b.key, b.chip.label, b.numbers, b.needs])).toEqual([
-      ['ann', 'Leader', '90 → 140', ''],
-      ['bob', 'Contending', '70 → 120', '+20'],
-      ['cy', 'Eliminated', '20 → 70', 'R2'],
+    expect(before.map((b) => [b.key, b.chip.label, b.points, b.bestLabel])).toEqual([
+      ['ann', 'Leader', '90', 'Best Possible: 140 pts'],
+      ['bob', 'Contending', '70', 'Best Possible: 120 pts'],
+      ['cy', 'Eliminated (Round 2)', '20', 'Best Possible: 70 pts'],
     ]);
     expect(contendersFloor(state, recompute(state)).floor).toBe(90);
 
     setEdit(state, edit({}));
     const after = barViews(state, recompute(state));
-    expect(after.find((b) => b.key === 'bob')!.numbers).toBe('120');
+    expect(after.find((b) => b.key === 'bob')!.points).toBe('120');
     expect(after.map((b) => b.chip.label)).toEqual(['Champion', 'P2', 'P3']);
     expect(after[0].ariaLabel).toBe(
       'BOB, champion, 120 points, counted: R1 · Track 1, 40; R2 · Track 2, 30; R4 · Track 4, 50',
@@ -139,6 +139,54 @@ describe('the edit set', () => {
 
     undoEdit(state, { entrantKey: 'bob', roundIndex: 4 });
     expect(barViews(state, recompute(state))).toEqual(before);
+  });
+
+  it('shows a row on no points as 0 in the Pts column, with no arrow or gap text (BR1.1, BR1.2)', () => {
+    const s = season(BASE.rounds, [...BASE.entrants, entrant('dee', [null, null, null, null])]);
+    const bars = barViews(createState(s), recompute(createState(s)));
+    const dee = bars.find((b) => b.key === 'dee')!;
+    expect(dee.points).toBe('0');
+    expect(dee.bestLabel).toBe('Best Possible: 50 pts');
+    for (const b of bars) {
+      expect(Object.keys(b)).not.toContain('numbers');
+      expect(Object.keys(b)).not.toContain('needs');
+      expect(b.points).toMatch(/^\d+$/);
+    }
+  });
+
+  it('labels a finished row’s best possible with its counted total (BR1.3, AC2.2.3)', () => {
+    const state = createState(BASE);
+    setEdit(state, edit({}));
+    const bars = barViews(state, recompute(state));
+    expect(bars.map((b) => [b.key, b.chip.label, b.points, b.bestLabel])).toEqual([
+      ['bob', 'Champion', '120', 'Best Possible: 120 pts'],
+      ['ann', 'P2', '90', 'Best Possible: 90 pts'],
+      ['cy', 'P3', '20', 'Best Possible: 20 pts'],
+    ]);
+  });
+
+  it('keeps the plain Eliminated tag in the results matrix while the bar names the round (BR1.4)', () => {
+    const state = createState(BASE);
+    const snapshot = recompute(state);
+    expect(barViews(state, snapshot)[2].chip).toEqual({ label: 'Eliminated (Round 2)', tone: 'muted' });
+    expect(matrixRows(state, snapshot)[2].status).toEqual({ label: 'Eliminated', tone: 'muted' });
+  });
+
+  it('shows no Eliminated tag when viewed as of a round before the elimination (BR1.6)', () => {
+    // As of round 1: round 2 has not run yet, so CY can still reach 110 against ANN's 50.
+    const asOfRound1 = season(
+      [round(1, 'completed'), round(2, 'future'), round(3, 'special'), round(4, 'future')],
+      [
+        entrant('ann', [50, null, null, null]),
+        entrant('bob', [40, null, null, null]),
+        entrant('cy', [10, null, null, null]),
+      ],
+    );
+    const bars = barViews(createState(asOfRound1), recompute(createState(asOfRound1)));
+    const cy = bars.find((b) => b.key === 'cy')!;
+    expect(cy.chip.label).toBe('Contending');
+    expect(bars.some((b) => b.chip.label.startsWith('Eliminated'))).toBe(false);
+    expect(cy.bestLabel).toBe('Best Possible: 110 pts');
   });
 
   it('names every status with the new labels, in the tags, the matrix and the text equivalent', () => {
@@ -450,7 +498,7 @@ describe('the bars’ markup', () => {
     vi.unstubAllGlobals();
   });
 
-  it('draws one Leader’s Floor line over every bar, same-width tracks and a fixed right column', async () => {
+  it('draws one Leader’s Floor line over every bar, same-width tracks and Pos, Name, Pts, Status, bar', async () => {
     const { contendersSection } = await import('../../src/scripts/pointsCalculatorView');
     const state = createState(BASE);
     const section = contendersSection(state, recompute(state)) as unknown as FakeElement;
@@ -467,13 +515,30 @@ describe('the bars’ markup', () => {
     const rows = section.querySelectorAll('[data-bar]');
     expect(rows).toHaveLength(3);
     for (const row of rows) expect(columns(row)).toEqual(columns(overlay));
-    expect(columns(overlay)).toContain('md:grid-cols-[2rem_11rem_minmax(0,1fr)_300px]');
+    expect(columns(overlay)).toContain('md:grid-cols-[2rem_11rem_3.5rem_11rem_minmax(0,1fr)]');
+    // Four spacers, then the bar column that holds the line.
+    expect(overlay.children).toHaveLength(5);
+    expect(overlay.children[4].querySelector('[data-floor-line]')).not.toBeNull();
 
-    // Right column: status tag, points, needs, in that order.
+    // Each row: Pos, then name, Pts and status (one wrapper, md:contents), then the bar; no right column.
     const bob = section.querySelector('[data-bar="bob"]')!;
-    const right = bob.children[bob.children.length - 1];
-    expect(right.children.map((c) => c.textContent)).toEqual(['Contending', '70 → 120', '+20']);
-    expect(section.querySelector('[data-bar="cy"] [data-bar-needs]')!.textContent).toBe('R2');
+    const [, pos, nameLine, track] = bob.children;
+    expect(bob.children).toHaveLength(4);
+    expect(pos.textContent).toBe('2');
+    expect(nameLine.classes).toContain('md:contents');
+    expect(nameLine.children.map((c) => c.textContent)).toEqual(['BOB', '70', 'Contending']);
+    expect(nameLine.children[1].hasAttribute('data-bar-points')).toBe(true);
+    expect(track.hasAttribute('data-bar-track')).toBe(true);
+    const cy = section.querySelector('[data-bar="cy"]')!;
+    expect(cy.querySelector('[data-bar-points]')!.textContent).toBe('20');
+    expect(cy.querySelector('[data-status-chip]')!.textContent).toBe('Eliminated (Round 2)');
+    // No gap, round or current-to-best text anywhere outside the screen-reader sentences.
+    for (const row of rows) {
+      const visible = row.children.filter((c) => !c.hasAttribute('data-bar-text')).map((c) => c.textContent);
+      expect(visible.join(' ')).not.toMatch(/→|\+\d|\bR\d/);
+    }
+    expect(section.querySelectorAll('[data-bar-numbers]')).toHaveLength(0);
+    expect(section.querySelectorAll('[data-bar-needs]')).toHaveLength(0);
 
     // Segments carry their race and points; the row's text equivalent says the same.
     const segments = bob.querySelectorAll('[data-bar-segment]');
@@ -495,6 +560,53 @@ describe('the bars’ markup', () => {
     expect(
       section.querySelectorAll('p').filter((p) => !p.hasAttribute('data-contenders-legend')),
     ).toHaveLength(0);
+  });
+
+  it('makes the best-possible part a focusable, labelled image outside every aria-hidden part', async () => {
+    const { contendersSection } = await import('../../src/scripts/pointsCalculatorView');
+    const state = createState(BASE);
+    const section = contendersSection(state, recompute(state)) as unknown as FakeElement;
+    const bob = section.querySelector('[data-bar="bob"]')!;
+
+    const best = bob.querySelector('[data-bar-best]')!;
+    expect(best.getAttribute('tabindex')).toBe('0');
+    expect(best.getAttribute('role')).toBe('img');
+    expect(best.getAttribute('aria-label')).toBe('Best Possible: 120 pts');
+    expect(best.getAttribute('data-tip')).toBe('Best Possible: 120 pts');
+    expect(best.closest('[aria-hidden]')).toBeNull();
+
+    // The segments are decorative to assistive tech and let the pointer fall through to the best part.
+    const segments = bob.querySelector('[data-bar-segments]')!;
+    expect(segments.getAttribute('aria-hidden')).toBe('true');
+    expect(segments.classes).toContain('pointer-events-none');
+    expect(
+      segments.querySelectorAll('[data-bar-segment]').every((s) => s.classes.includes('pointer-events-auto')),
+    ).toBe(true);
+    // The row's sentence still carries the status and best possible for screen readers.
+    expect(section.querySelector('[data-bar="cy"] [data-bar-text]')!.textContent).toMatch(
+      /^CY, eliminated after round 2, 20 points, best possible 70/,
+    );
+  });
+
+  it('shows the Best Possible tooltip on keyboard focus and hides it on blur', async () => {
+    const { contendersSection } = await import('../../src/scripts/pointsCalculatorView');
+    const state = createState(BASE);
+    const section = contendersSection(state, recompute(state)) as unknown as FakeElement;
+    const tip = section.querySelector('[data-bar-tip]')!;
+    expect(tip.classes).toContain('hidden');
+
+    const best = section.querySelector('[data-bar="ann"] [data-bar-best]')!;
+    best.dispatch('focusin');
+    expect(tip.classes).not.toContain('hidden');
+    expect(tip.textContent).toBe('Best Possible: 140 pts');
+
+    best.dispatch('focusout');
+    expect(tip.classes).toContain('hidden');
+
+    // Pointer over the best part shows the same text.
+    best.dispatch('pointerover');
+    expect(tip.textContent).toBe('Best Possible: 140 pts');
+    expect(tip.classes).not.toContain('hidden');
   });
 
   it('makes every matrix cell a labelled button, the special round disabled, with no visible caption', async () => {
@@ -585,7 +697,10 @@ describe('the Scenario Editor popup', () => {
     expect(state.edits.size).toBe(1);
     expect(doc.body.querySelector('[data-scenario-editor]')).toBeNull();
     expect(doc.activeElement).toBe(openButton);
-    expect(page.querySelector('[data-bar="bob"] [data-bar-numbers]')!.textContent).toBe('120');
+    expect(page.querySelector('[data-bar="bob"] [data-bar-points]')!.textContent).toBe('120');
+    expect(page.querySelector('[data-bar="bob"] [data-bar-best]')!.getAttribute('aria-label')).toBe(
+      'Best Possible: 120 pts',
+    );
   });
 
   it('drops the session’s changes when closed without Save (Close or Escape)', async () => {

@@ -34,7 +34,11 @@ import {
   findRoundsForLayout,
   emptyLayoutHighlights,
   getLayoutClassHighlights,
+  getLayoutExcludedRoundIds,
   layoutHighlightGroups,
+  formatPastResultDate,
+  withoutExcludedRounds,
+  withoutExcludedRoundRows,
   type LayoutRoundSummary,
   type LayoutHighlights,
 } from '../../lib/results/layouts';
@@ -55,10 +59,10 @@ import {
 import { driversSelect } from '../../lib/results/rows';
 import { classTagFull } from '../../lib/classColors';
 import ClassBadge from '../../components/ClassBadge.astro';
-import { getIncidentsForSubsessions, sortIncidentRowsNewestFirst, type IncidentRow } from '../../lib/incidents';
+import { getIncidentsForSubsessions, type IncidentRow } from '../../lib/incidents';
 import WeatherIcon from '../../components/WeatherIcon.astro';
 import LayoutMap from '../../components/LayoutMap.astro';
-import IncidentsAllTable from '../../components/IncidentsAllTable.astro';
+import IncidentHistory from '../../components/IncidentHistory.astro';
 import { TBD_LABEL } from '../../lib/eventTbd';
 import IncidentDetailsDialog from '../../components/IncidentDetailsDialog.astro';
 
@@ -97,11 +101,13 @@ let circuitCoordinates: { latitude: number | null; longitude: number | null } = 
 let logoBg: LogoBackground | null = null;
 let classes: Awaited<ReturnType<typeof getDriverClasses>> = [];
 let historicalRounds: LayoutRoundSummary[] = [];
+/** The past rounds without test and exhibition rounds (BR8.5); broadcasts and albums keep every round. */
+let pastRounds: LayoutRoundSummary[] = [];
 let highlights: LayoutHighlights = emptyLayoutHighlights();
 let classBestLaps: Map<number, ClassBestLap> = new Map();
 /** The Overall record (W2): the faster of the typed record and the league's fastest lap here. */
 let trackRecord: TrackRecord | null = null;
-/** Every posted incident at this layout, newest first — rendered with the same table (and click-for-details popup) as History → Incidents. */
+/** Every posted incident at this layout outside test and exhibition rounds, in the loader's order, in the profile's table with the click-for-details popup. */
 let incidentRows: IncidentRow[] = [];
 /** One race's broadcast or photo-album link, paired with the historical round it belongs to for date/season display — same shape for both new sections below, just holding whichever url applies. */
 interface MediaEntry {
@@ -143,7 +149,10 @@ if (!loadError && event && event.circuit_id) {
     );
     historicalRounds = findRoundsForLayout(allRounds, roundLayoutBySubsession, circuits, layouts, event.circuit_id, event.layout);
 
-    const [layoutHighlights, leagueRecords, incidents, raceLinks, resolvedRecordCar] = await Promise.all([
+    const ids = historicalRounds.map((r) => r.subsessionId);
+    const [excludedIds, layoutHighlights, leagueRecords, incidents, raceLinks, resolvedRecordCar] = await Promise.all([
+      // Test and exhibition rounds (BR8.5); no catch, so a failed read shows the error state (BR8.6).
+      getLayoutExcludedRoundIds(supabaseEnv, ids),
       // allRaces: a sprint weekend lists every race's winner, not just race 1's. Poles are unchanged.
       getLayoutClassHighlights(supabaseEnv, historicalRounds, drivers, { allRaces: true }),
       // The league records (W1): the view, plus reads this page already made. A failure leaves the typed
@@ -152,17 +161,13 @@ if (!loadError && event && event.circuit_id) {
         console.error('Failed to load league track records for the Event Briefing; showing the typed record:', err);
         return null;
       }),
-      getIncidentsForSubsessions(
-        supabaseEnv,
-        historicalRounds.map((r) => r.subsessionId)
-      ),
-      getRaceLinksForSubsessions(
-        supabaseEnv,
-        historicalRounds.map((r) => r.subsessionId)
-      ),
+      getIncidentsForSubsessions(supabaseEnv, ids),
+      getRaceLinksForSubsessions(supabaseEnv, ids),
       layoutRow ? resolveLapRecordCar(supabaseEnv, layoutRow, historicalRounds, carLogos) : Promise.resolve(null),
     ]);
-    highlights = layoutHighlights;
+    pastRounds = withoutExcludedRoundRows(historicalRounds, excludedIds);
+    highlights = withoutExcludedRounds(layoutHighlights, excludedIds);
+    incidentRows = withoutExcludedRoundRows(incidents, excludedIds);
     // The event's record key (BR1.2): its layout, the circuit when it has no layout rows, or none.
     const recordKey = circuit ? createRecordKeyResolver(circuits, layouts).resolve(circuit.name, event.layout) : null;
     const league = leagueRecords?.league ?? new Map();
@@ -181,7 +186,6 @@ if (!loadError && event && event.circuit_id) {
       recordCarLogoUrl = resolvedRecordCar?.carLogoUrl ?? null;
     }
 
-    incidentRows = sortIncidentRowsNewestFirst(incidents);
     const roundBySubsession = new Map(historicalRounds.map((r) => [r.subsessionId, r]));
 
     const byRoundDesc = (a: MediaEntry, b: MediaEntry) => b.round.startTime.localeCompare(a.round.startTime);
@@ -224,7 +228,7 @@ if (loadError) markUncacheable(Astro);
 ---
 
 <Layout title={event ? `Event Briefing — ${circuitName}` : 'Event Briefing'} description="Everything to know before the next race weekend.">
-  <section class="mx-auto max-w-4xl px-6 pb-24 pt-8">
+  <section class="mx-auto max-w-5xl px-6 pb-24 pt-8">
     <a href="/" class="text-sm text-white/50 hover:text-white">&larr; Back to Home</a>
 
     {loadError && <LoadError />}
@@ -361,7 +365,8 @@ if (loadError) markUncacheable(Astro);
         </div>
 
         {/* 3. Past winners and pole-sitters per class (getLayoutClassHighlights in
-           src/lib/results/layouts.ts); multi-race rounds tag each winner "Race N". */}
+           src/lib/results/layouts.ts): every race's winner, Race 3, 2, 1 inside a round, with no "Race N"
+           tag; the date opens that race. */}
         <div class="reveal mt-8" style="transition-delay: 120ms">
           <h2 class="font-display text-2xl uppercase tracking-widest text-white/50">Past Winners &amp; Pole-Sitters</h2>
           {highlightGroups.length === 0 ? (
@@ -379,15 +384,12 @@ if (loadError) markUncacheable(Astro);
                       <ul class="mt-1 space-y-1 text-sm">
                         {winners.map((w) => (
                           <li class="flex items-center justify-between gap-2">
-                            <span>
-                              <DriverLink id={w.driver.id} hidden={w.driver.is_hidden}>{shortDriverName(w.driver.name)}</DriverLink>
-                              {w.raceCount > 1 && <span class="ml-1 text-[11px] text-white/40">Race {w.raceNumber}</span>}
-                            </span>
+                            <DriverLink id={w.driver.id} hidden={w.driver.is_hidden}>{shortDriverName(w.driver.name)}</DriverLink>
                             {/* The name now goes to the driver's profile, so the race result link moved to the date. */}
                             <a
                               href={`/results/${w.round.subsessionId}${w.raceNumber > 1 ? `?session=race-${w.raceNumber}` : ''}`}
                               class="text-xs text-white/40 hover:text-brand-primary"
-                            >{formatDateShort(w.round.startTime)}</a>
+                            >{formatPastResultDate(w.round.startTime)}</a>
                           </li>
                         ))}
                       </ul>
@@ -398,7 +400,7 @@ if (loadError) markUncacheable(Astro);
                         {poles.map((p) => (
                           <li class="flex items-center justify-between gap-2">
                             <DriverLink id={p.driver.id} hidden={p.driver.is_hidden}>{shortDriverName(p.driver.name)}</DriverLink>
-                            <a href={`/results/${p.round.subsessionId}?category=qualifying`} class="text-xs text-white/40 hover:text-brand-primary">{formatDateShort(p.round.startTime)}</a>
+                            <a href={`/results/${p.round.subsessionId}?category=qualifying`} class="text-xs text-white/40 hover:text-brand-primary">{formatPastResultDate(p.round.startTime)}</a>
                           </li>
                         ))}
                       </ul>
@@ -419,17 +421,17 @@ if (loadError) markUncacheable(Astro);
               <span class="text-white/40 transition group-open:rotate-180">▾</span>
             </summary>
             <div class="mt-3">
-              {historicalRounds.length === 0 ? (
+              {pastRounds.length === 0 ? (
                 <p class="text-sm text-white/40">No past rounds at this layout yet.</p>
               ) : (
                 <div class="overflow-hidden rounded-xl border border-white/10">
-                  {historicalRounds.map((r, i) => (
+                  {pastRounds.map((r, i) => (
                     <a
                       href={`/results/${r.subsessionId}`}
                       class={`flex items-center justify-between gap-3 p-3 text-sm transition hover:bg-white/5 ${i > 0 ? 'border-t border-white/10' : ''}`}
                     >
                       <span class="font-semibold">{r.seasonLabel ?? CATEGORY_LABELS.championship}</span>
-                      <span class="text-white/50">{formatDateShort(r.startTime)}</span>
+                      <span class="text-white/50">{formatPastResultDate(r.startTime)}</span>
                     </a>
                   ))}
                 </div>
@@ -438,8 +440,8 @@ if (loadError) markUncacheable(Astro);
           </details>
         </div>
 
-        {/* 5. Past posted incidents at this layout, newest first, in the History → Incidents table without
-           the Track column. The popup sits outside the <details> so it opens either way. */}
+        {/* 5. Past posted incidents at this layout in the profile's table (IncidentHistory), each row opening
+           the popup. The popup sits outside the <details> so the map pins open it either way. */}
         <div class="reveal mt-8" style="transition-delay: 160ms">
           <details class="group">
             <summary class="flex cursor-pointer list-none items-center justify-between gap-2">
@@ -447,11 +449,7 @@ if (loadError) markUncacheable(Astro);
               <span class="text-white/40 transition group-open:rotate-180">▾</span>
             </summary>
             <div class="mt-3">
-              {incidentRows.length === 0 ? (
-                <p class="text-sm text-white/40">No incidents logged at this layout yet.</p>
-              ) : (
-                <IncidentsAllTable rows={incidentRows} showTrack={false} minWidthClass="" />
-              )}
+              <IncidentHistory rows={incidentRows} details />
             </div>
           </details>
           {incidentRows.length > 0 && <IncidentDetailsDialog rows={incidentRows} />}

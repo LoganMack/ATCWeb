@@ -1,10 +1,11 @@
 ---
 export const prerender = false;
 import LoadError from '../../../components/LoadError.astro';
-import { markUncacheable } from '../../../lib/security';
+import { markUncacheable, safeJson } from '../../../lib/security';
 
 import { resolveSupabaseEnv } from '../../../lib/db/client';
 import {
+  getRatingTimeline,
   getSeriesRatings,
   MIN_RATED_RACES,
   RATING_KIND_LABELS,
@@ -13,13 +14,15 @@ import {
   type SeriesRatingRow,
 } from '../../../lib/db/seriesRatings';
 import { TREND_HEIGHT, TREND_WIDTH, trendLine } from '../../../lib/rating/trend';
+import type { TimelineSlot } from '../../../lib/rating/timeline';
 
 /**
  * Series iRating's table for the advanced-stats.astro shell (FR7; NFR1, NFR2): one rating kind read from the
  * masked view, drivers with at least MIN_RATED_RACES races only, at most 20 trend values per driver, no rating
  * maths here. Hidden drivers arrive masked ("Hidden Driver", no id), so they get no link. Sorting, the search
  * box in the shell's filter card and each row's history chart (fetched from advanced-stats/ratings/history
- * when the row opens) run in the browser (src/scripts/seriesRatings.ts). Never linked directly.
+ * when the row opens) run in the browser (src/scripts/seriesRatings.ts). It also embeds the shared round slot
+ * list for the charts, read with the list; either read failing fails the fragment. Never linked directly.
  */
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
@@ -27,8 +30,11 @@ const kind = resolveRatingKind(Astro.url.searchParams.get('class'));
 
 let loadError: string | null = null;
 let rows: SeriesRatingRow[] = [];
+let timeline: TimelineSlot[] = [];
 try {
-  rows = await getSeriesRatings(supabaseEnv, kind);
+  const [list, slots] = await Promise.all([getSeriesRatings(supabaseEnv, kind), getRatingTimeline(supabaseEnv)]);
+  rows = list;
+  timeline = slots;
 } catch (err) {
   console.error('Failed to load the Series iRating (fragment):', err);
   loadError = err instanceof Error ? err.message : String(err);
@@ -139,10 +145,12 @@ if (loadError) markUncacheable(Astro);
                           viewBox={`0 0 ${TREND_WIDTH} ${TREND_HEIGHT}`}
                           role="img"
                           aria-label={trend.label}
-                          class:list={[trend.direction === 'down' ? 'text-brand-pink' : 'text-brand-blue']}
                           data-trend={trend.direction}
                         >
-                          <polyline points={trend.points} fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" />
+                          {trend.runs.map((run) => (
+                            <polyline points={run.points} class={run.direction === 'down' ? 'text-brand-pink' : 'text-brand-blue'} data-dir={run.direction} fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" />
+                          ))}
+                          {trend.dot && <circle cx={trend.dot.x} cy={trend.dot.y} r="1.5" class="text-brand-blue" fill="currentColor" />}
                         </svg>
                       </td>
                     </tr>
@@ -157,6 +165,7 @@ if (loadError) markUncacheable(Astro);
             </tbody>
           </table>
         </div>
+        <script type="application/json" id="rating-timeline" data-rating-timeline set:html={safeJson(timeline)} />
       </>
     )}
   </section>

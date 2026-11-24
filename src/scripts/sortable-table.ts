@@ -38,7 +38,7 @@ export function compareSortEntries(a: SortEntry, b: SortEntry, dir: number): num
   return 0;
 }
 
-function initSortableTables() {
+export function initSortableTables() {
   document.querySelectorAll<HTMLTableElement>('table[data-sortable]').forEach((table) => {
     if (table.dataset.sortableInit === 'true') return;
     table.dataset.sortableInit = 'true';

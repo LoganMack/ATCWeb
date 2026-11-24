@@ -1,4 +1,5 @@
 import { LEAGUE_TIME_ZONE } from '../timezone';
+import embedReads from '../embedReads.json';
 import { restDelete, restGet, restGetAll, restPatch, restPost, type SupabaseEnv } from './client';
 
 // --- Events ----------------------------------------------------------------
@@ -200,6 +201,73 @@ export function getEventWetFlagsForSeasons(env: SupabaseEnv, seasonIds: string[]
     env,
     `events?select=${EVENT_WET_FLAGS_SELECT}&or=(season_id.in.(${ids}),subsession_id.not.is.null)&order=id.asc`,
   );
+}
+
+/** The three race flags the Weather split reads; practice and qualifying never make a race wet (BR1.2). */
+export type RaceWetFlags = Pick<
+  EventWetFlags,
+  'race1_wet_affected' | 'race2_wet_affected' | 'race3_wet_affected'
+>;
+
+/**
+ * A round with its linked event (curated_rounds.event_id) and its pinned events (events.subsession_id). The
+ * CI embed check sends this same string (embedReads.json), so a wrong FK hint fails CI.
+ */
+export const ROUND_WET_FLAGS_SELECT: string = embedReads.raceWetFlags.select;
+
+interface RoundWetFlagsRow {
+  subsession_id: number;
+  linked: RaceWetFlags | null;
+  pinned: (RaceWetFlags & { id: string })[] | null;
+}
+
+/** True only for race 1, 2 or 3 whose own flag is exactly true. */
+export function isWetRace(flags: RaceWetFlags | null | undefined, raceNumber: number): boolean {
+  switch (raceNumber) {
+    case 1:
+      return flags?.race1_wet_affected === true;
+    case 2:
+      return flags?.race2_wet_affected === true;
+    case 3:
+      return flags?.race3_wet_affected === true;
+    default:
+      return false;
+  }
+}
+
+/**
+ * The linked event's race flags, else the pinned event with the greatest id (the last one Stats > Seasons
+ * reads in id order), else null. Only the race flags are returned, never the event id.
+ */
+export function roundWetFlags(row: RoundWetFlagsRow): RaceWetFlags | null {
+  let source: RaceWetFlags | null = null;
+  if (row.linked && typeof row.linked === 'object') {
+    source = row.linked;
+  } else if (row.pinned && row.pinned.length > 0) {
+    source = row.pinned.reduce((best, e) => (e.id > best.id ? e : best));
+  }
+  if (!source) return null;
+  return {
+    race1_wet_affected: source.race1_wet_affected,
+    race2_wet_affected: source.race2_wet_affected,
+    race3_wet_affected: source.race3_wet_affected,
+  };
+}
+
+/**
+ * Race wet flags per round for these subsessions, in one paginated read. It throws on failure so the caller
+ * can tell "no data" from "dry"; withHiddenRounds applies because curated_rounds is subsession keyed.
+ */
+export async function getRaceWetFlagsForSubsessions(
+  env: SupabaseEnv,
+  subsessionIds: number[],
+): Promise<Map<number, RaceWetFlags | null>> {
+  if (subsessionIds.length === 0) return new Map();
+  const rows = await restGetAll<RoundWetFlagsRow>(
+    env,
+    `curated_rounds?select=${encodeURIComponent(ROUND_WET_FLAGS_SELECT)}&subsession_id=in.(${subsessionIds.join(',')})&order=subsession_id.asc`,
+  );
+  return new Map(rows.map((row) => [row.subsession_id, roundWetFlags(row)]));
 }
 
 /** Championship events' season and round numbers, for the homepage's "Final Round" label (BR11.1). */

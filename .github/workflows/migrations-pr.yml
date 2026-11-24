@@ -89,8 +89,9 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          if git diff --quiet "$BASE_SHA" HEAD -- supabase/; then
-            echo "No change under supabase/; nothing to rebuild."
+          # The embed check also guards the select strings the pages send, so a change to either list counts.
+          if git diff --quiet "$BASE_SHA" HEAD -- supabase/ src/lib/privacyReads.json src/lib/embedReads.json; then
+            echo "No change under supabase/ or the embed read lists; nothing to rebuild."
             echo "run=false" >> "$GITHUB_OUTPUT"
           elif [ ! -d supabase/migrations/archive ]; then
             # Before the baseline PR, supabase/migrations/ still holds the 128 legacy numbered files,
@@ -251,6 +252,11 @@ jobs:
       - name: Series iRating fixtures on the rebuilt database
         if: steps.scope.outputs.run == 'true'
         run: psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -X -q -v ON_ERROR_STOP=1 -f supabase/checks/series-rating-fixtures.sql
+
+      # Same convention: layout categories, admin-only writes, the view's new column and the logo colour CHECK.
+      - name: Layout category fixtures on the rebuilt database
+        if: steps.scope.outputs.run == 'true'
+        run: psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -X -q -v ON_ERROR_STOP=1 -f supabase/checks/layout-category-fixtures.sql
 
       # Every select string the readers send through the masked views, called through the local PostgREST
       # as anon and as an admin (NFR8.6). It seeds and commits its own rows and removes them at the end.

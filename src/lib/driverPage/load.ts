@@ -140,7 +140,9 @@ export async function loadDriverPage(supabaseEnv: SupabaseEnv, driverId: string)
 
   // Then in parallel: the career, the race history, the news and the driver's own incidents (BR4.2).
   const { seasons: seasonsPromise, career: careerPromise } = loadCareer(supabaseEnv, driverId, base);
-  const historyPromise = getDriverRaceHistory(supabaseEnv, driverId, driver.iracing_cust_id);
+  const historyPromise = getDriverRaceHistory(supabaseEnv, driverId, driver.iracing_cust_id, {
+    wetFlags: true,
+  });
   const newsPromise = Promise.all([
     getNewsPosts(supabaseEnv),
     getAllNewsPostDrivers(supabaseEnv),

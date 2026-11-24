@@ -11,9 +11,18 @@
 // the seeded rows (an embed emptied by Row Level Security returns 200, so the status alone would not catch
 // it).
 //
+// It also checks the public embed selects in src/lib/embedReads.json (the driver profile's wet-flags read:
+// a round with its linked and pinned events, by FK hint; and the Series iRating timeline read: a round with
+// its season and its linked and pinned event categories; and the past results read: a round with its linked
+// and pinned event categories), with the same calls and an extra check that each
+// embed returns the seeded values, so a wrong or ambiguous FK hint fails here instead of emptying a page.
+//
 // The rows it needs (an admin, a member, a hidden driver with a team, a posted penalty with an offense and an
 // involved driver, a news post and a meetup tagging the driver, a kudos, an interview by the other driver,
-// a Series iRating summary and one rated race for the hidden driver)
+// a Series iRating summary and one rated race for the hidden driver, a season ('Embed Season') the seeded
+// round belongs to, and two events for the seeded round: one linked through curated_rounds.event_id with
+// race 1 wet and the category exhibition, one pinned through events.subsession_id with race 1 dry and the
+// category test)
 // are inserted and committed with psql first, and deleted again at the end, also on failure. The admin and
 // member tokens are signed with the local JWT secret that `supabase status` reports. Connection details can be overridden with DB_URL, SUPABASE_API_URL,
 // SUPABASE_ANON_KEY and SUPABASE_JWT_SECRET.
@@ -25,6 +34,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const READS_FILE = join(ROOT, 'src', 'lib', 'privacyReads.json');
+const EMBED_READS_FILE = join(ROOT, 'src', 'lib', 'embedReads.json');
 const DEFAULT_DB_URL = 'postgresql://postgres:postgres@127.0.0.1:54322/postgres';
 
 export const SEED = {
@@ -41,8 +51,11 @@ export const SEED = {
   kudos: 'cccccccc-0000-0000-0000-000000000741',
   member: 'eeeeeeee-0000-0000-0000-000000000703',
   interview: 'cccccccc-0000-0000-0000-000000000751',
-  // Only a rating step's season id; no season row is needed.
+  // The Embed Season row (number 990701): the seeded round's season and the rating step's season id.
   season: 'cccccccc-0000-0000-0000-000000000761',
+  // The round's linked event (curated_rounds.event_id) and its pinned event (events.subsession_id).
+  linkedEvent: 'cccccccc-0000-0000-0000-000000000771',
+  pinnedEvent: 'cccccccc-0000-0000-0000-000000000772',
 };
 
 /** The filter that narrows each read to the seeded rows. Every entry in privacyReads.json needs one. */
@@ -62,9 +75,48 @@ export const FILTERS = {
   seriesRatings: `kind=eq.overall&races=eq.871`,
   // The seeded step is the only one in the seeded round.
   seriesRatingHistory: `kind=eq.overall&subsession_id=eq.${SEED.round}`,
+  // Lineup Changes reads names by id; anon sees the seeded hidden driver masked, the admin unmasked.
+  lineupDrivers: `id=eq.${SEED.driver}`,
 };
 
-const SEED_SQL = `
+/** The same for embedReads.json, kept apart so FILTERS still matches privacyReads.json exactly. */
+export const EMBED_FILTERS = {
+  raceWetFlags: `subsession_id=eq.${SEED.round}`,
+  ratingTimelineRounds: `subsession_id=eq.${SEED.round}`,
+  pastResultsRoundEvents: `subsession_id=eq.${SEED.round}`,
+};
+
+/** Value checks for embedReads.json entries, after embedProblem passes: a problem string, or null. */
+export const EMBED_EXPECT = {
+  // The two events carry different race 1 flags, so each embed must resolve through its own FK.
+  raceWetFlags: (rows) => {
+    const row = Array.isArray(rows) ? rows[0] : undefined;
+    if (row?.linked?.race1_wet_affected !== true)
+      return 'linked event race1_wet_affected is not the seeded true';
+    if (!Array.isArray(row.pinned) || row.pinned[0]?.race1_wet_affected !== false)
+      return 'pinned event race1_wet_affected is not the seeded false';
+    return null;
+  },
+  // The season and the two events carry distinct values, so each embed must resolve through its own FK.
+  ratingTimelineRounds: (rows) => {
+    const row = Array.isArray(rows) ? rows[0] : undefined;
+    if (row?.season?.name !== 'Embed Season') return 'season name is not the seeded Embed Season';
+    if (row.event?.category !== 'exhibition') return 'event category is not the seeded exhibition';
+    if (!Array.isArray(row.pinned_events) || row.pinned_events[0]?.category !== 'test')
+      return 'pinned_events category is not the seeded test';
+    return null;
+  },
+  // The two events carry distinct categories, so each embed must resolve through its own FK.
+  pastResultsRoundEvents: (rows) => {
+    const row = Array.isArray(rows) ? rows[0] : undefined;
+    if (row?.event?.category !== 'exhibition') return 'event category is not the seeded exhibition';
+    if (!Array.isArray(row.pinned_events) || row.pinned_events[0]?.category !== 'test')
+      return 'pinned_events category is not the seeded test';
+    return null;
+  },
+};
+
+export const SEED_SQL = `
 update public.scoring_settings set triggers_enabled = false;
 insert into public.driver_statuses (id, name) values (831, 'Embed Check Status');
 insert into public.driver_classes (id, name, sort_order) values (831, 'Embed Check Class', 99);
@@ -81,7 +133,12 @@ insert into public.profiles (id, role, display_name) values ('${SEED.admin}', 'a
 insert into public.profiles (id, role, display_name) values ('${SEED.member}', 'driver', 'Embed Member');
 insert into public.profiles (id, role, display_name, driver_id) values ('${SEED.owner}', 'driver', 'Embed Owner', '${SEED.driver}');
 insert into public.account_settings (profile_id, hide_name) values ('${SEED.owner}', true);
-insert into public.curated_rounds (subsession_id, start_time, track_name) values (${SEED.round}, '2026-06-01 18:00+00', 'Embed Park');
+insert into public.seasons (id, number, name) values ('${SEED.season}', 990701, 'Embed Season');
+insert into public.events (id, event_date, race1_wet_affected, category) values ('${SEED.linkedEvent}', '2026-06-01', true, 'exhibition');
+insert into public.curated_rounds (subsession_id, start_time, track_name, event_id, season_id) values
+  (${SEED.round}, '2026-06-01 18:00+00', 'Embed Park', '${SEED.linkedEvent}', '${SEED.season}');
+insert into public.events (id, event_date, subsession_id, race1_wet_affected, category) values
+  ('${SEED.pinnedEvent}', '2026-06-01', ${SEED.round}, false, 'test');
 insert into public.round_incident_status (subsession_id, posted) values (${SEED.round}, true);
 insert into public.penalty_offenses (id, name) values ('${SEED.offense}', 'Embed Check Offense');
 insert into public.penalties (id, subsession_id, race_number, driver_id, description) values
@@ -106,7 +163,9 @@ insert into private.rating_steps (kind, driver_id, subsession_id, race_number, s
 update public.scoring_settings set triggers_enabled = true;
 `;
 
-const CLEANUP_SQL = `
+// Scoring triggers are off while seeding, so linking the round to a season scores nothing; a scoring_issues
+// row, if one were written, would go with the round (cascade).
+export const CLEANUP_SQL = `
 update public.scoring_settings set triggers_enabled = false;
 delete from private.rating_summary where driver_id in ('${SEED.driver}', '${SEED.other}');
 delete from private.rating_steps where driver_id in ('${SEED.driver}', '${SEED.other}');
@@ -122,7 +181,11 @@ delete from public.penalty_offense_links where penalty_id = '${SEED.penalty}';
 delete from public.penalties where id = '${SEED.penalty}';
 delete from public.penalty_offenses where id = '${SEED.offense}';
 delete from public.round_incident_status where subsession_id = ${SEED.round};
+-- Before the round: events_subsession_id_fkey has no ON DELETE action.
+delete from public.events where id in ('${SEED.linkedEvent}', '${SEED.pinnedEvent}');
 delete from public.curated_rounds where subsession_id = ${SEED.round};
+-- After the round and the rating steps, which point at the season.
+delete from public.seasons where id = '${SEED.season}';
 delete from public.account_settings where profile_id in ('${SEED.admin}', '${SEED.owner}', '${SEED.member}');
 delete from public.profiles where id in ('${SEED.admin}', '${SEED.owner}', '${SEED.member}');
 delete from auth.users where id in ('${SEED.admin}', '${SEED.owner}', '${SEED.member}');
@@ -167,16 +230,20 @@ export function embedProblem(status, rows, embeds) {
   return null;
 }
 
-/** Every read and caller to call, with the URL path; throws when an entry has no seed filter. */
-export function plannedCalls(reads, filters) {
+/**
+ * Every read and caller to call, with the URL path; throws when an entry has no seed filter. `source` names
+ * the reads file in errors and on each call.
+ */
+export function plannedCalls(reads, filters, source = 'privacyReads.json') {
   const calls = [];
   for (const [name, read] of Object.entries(reads)) {
     const filter = filters[name];
-    if (!filter) throw new Error(`privacyReads.json entry "${name}" has no filter in check-view-embeds.mjs`);
+    if (!filter) throw new Error(`${source} entry "${name}" has no filter in check-view-embeds.mjs`);
     for (const caller of read.callers) {
       calls.push({
         name,
         caller,
+        source,
         embeds: read.embeds,
         url: `${read.path}?select=${encodeURIComponent(read.select)}&${filter}`,
       });
@@ -213,7 +280,11 @@ async function main() {
   if (!apiUrl || !anonKey || !jwtSecret) throw new Error('API_URL, ANON_KEY or JWT_SECRET not found');
 
   const reads = JSON.parse(readFileSync(READS_FILE, 'utf8'));
-  const calls = plannedCalls(reads, FILTERS);
+  const embedReads = JSON.parse(readFileSync(EMBED_READS_FILE, 'utf8'));
+  const calls = [
+    ...plannedCalls(reads, FILTERS),
+    ...plannedCalls(embedReads, EMBED_FILTERS, 'embedReads.json'),
+  ];
   const now = Math.floor(Date.now() / 1000);
   const tokenFor = (sub) =>
     signJwt({ sub, role: 'authenticated', aud: 'authenticated', iat: now, exp: now + 600 }, jwtSecret);
@@ -236,11 +307,13 @@ async function main() {
       } catch {
         rows = null;
       }
-      const problem = embedProblem(res.status, rows, call.embeds);
+      const expect = call.source === 'embedReads.json' ? EMBED_EXPECT[call.name] : undefined;
+      const problem = embedProblem(res.status, rows, call.embeds) ?? (expect ? expect(rows) : null);
       if (problem) {
-        failures.push(
-          `${call.name} as ${call.caller}: ${problem}${res.status === 200 ? '' : ` (${text.slice(0, 300)})`}`,
-        );
+        failures.push({
+          source: call.source,
+          text: `${call.name} as ${call.caller}: ${problem}${res.status === 200 ? '' : ` (${text.slice(0, 300)})`}`,
+        });
       } else {
         console.log(`ok ${call.name} as ${call.caller}`);
       }
@@ -251,12 +324,12 @@ async function main() {
 
   const inActions = process.env.GITHUB_ACTIONS === 'true';
   for (const failure of failures)
-    console.error(inActions ? `::error file=src/lib/privacyReads.json::${failure}` : failure);
+    console.error(inActions ? `::error file=src/lib/${failure.source}::${failure.text}` : failure.text);
   if (failures.length > 0) {
-    console.error(`${failures.length} masked-view read(s) failed.`);
+    console.error(`${failures.length} embed read(s) failed.`);
     process.exit(1);
   }
-  console.log(`Masked view embeds: all ${calls.length} calls passed.`);
+  console.log(`Masked view and public embeds: all ${calls.length} calls passed.`);
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {

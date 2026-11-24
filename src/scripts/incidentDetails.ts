@@ -1,27 +1,42 @@
-// "Incident Details" popup for incident rows ([data-history-incident]) on History → Incidents and the Event
-// Briefing. Delegated on `document`, since the rows arrive in a fetched fragment where scripts don't run;
-// rows carry an id and the details live in the page's JSON block.
-let summaryCache: { source: Element; data: Record<string, any> } | null = null;
+// "Incident Details" popup for incident rows ([data-history-incident]) on History → Incidents, the Event
+// Briefing and the Stats > Circuits layout rows. Delegated on `document`, since the rows arrive in a fetched
+// fragment where scripts don't run. A row inside [data-incident-details-scope] (one per layout row) reads that
+// scope's JSON block and dialog; any other row reads the page's first ones.
+const summaryCache = new WeakMap<Element, Record<string, any>>();
 
-function readSummaries(): Record<string, any> {
-  const source = document.querySelector('[data-history-incident-data]');
-  if (!source) return {};
-  // Re-read whenever a new JSON block has replaced the old one (a fresh fragment).
-  if (summaryCache?.source === source) return summaryCache.data;
+/** A block's data, parsed once per block element, so a re-fetched fragment's new block is read fresh. */
+function readSummaries(block: Element): Record<string, any> {
+  const cached = summaryCache.get(block);
+  if (cached) return cached;
   let data: Record<string, any> = {};
   try {
-    data = JSON.parse(source.textContent ?? '{}');
+    data = JSON.parse(block.textContent ?? '{}');
   } catch {
     data = {};
   }
-  summaryCache = { source, data };
+  summaryCache.set(block, data);
   return data;
 }
 
-function openIncidentDetails(row: HTMLElement) {
-  const dialog = document.querySelector<HTMLDialogElement>('[data-history-incident-dialog]');
-  if (!dialog) return;
-  const summary = readSummaries()[row.dataset.historyIncident ?? ''];
+// The row that opened each dialog, so closing it (Escape, ✕ or the backdrop) puts focus back there.
+const openers = new WeakMap<HTMLDialogElement, HTMLElement>();
+const closeBound = new WeakSet<HTMLDialogElement>();
+
+function returnFocusOnClose(dialog: HTMLDialogElement) {
+  if (closeBound.has(dialog)) return;
+  closeBound.add(dialog);
+  dialog.addEventListener('close', () => {
+    const opener = openers.get(dialog);
+    if (opener?.isConnected) opener.focus();
+  });
+}
+
+function openFromTrigger(trigger: HTMLElement) {
+  const scope: ParentNode = trigger.closest('[data-incident-details-scope]') ?? document;
+  const block = scope.querySelector('[data-history-incident-data]');
+  const dialog = scope.querySelector<HTMLDialogElement>('[data-history-incident-dialog]');
+  if (!block || !dialog) return;
+  const summary = readSummaries(block)[trigger.dataset.historyIncident ?? ''];
   if (!summary) return;
   const set = (name: string, text: string) => {
     const el = dialog.querySelector<HTMLElement>(`[data-hi="${name}"]`);
@@ -60,7 +75,19 @@ function openIncidentDetails(row: HTMLElement) {
   show('appealed', Boolean(summary.isAppealed));
   dialog.querySelector<HTMLAnchorElement>('[data-hi-link="round"]')?.setAttribute('href', summary.roundHref);
   dialog.querySelector<HTMLAnchorElement>('[data-hi-link="report"]')?.setAttribute('href', summary.href);
+  openers.set(dialog, trigger);
+  returnFocusOnClose(dialog);
   dialog.showModal();
+}
+
+const CONTROL_TAGS = ['a', 'button', 'input', 'select', 'textarea'];
+
+/** Whether the click landed on a link or control inside the row (not the row itself), which keeps its own behaviour. */
+function insideControl(target: HTMLElement, trigger: HTMLElement): boolean {
+  return CONTROL_TAGS.some((tag) => {
+    const control = target.closest(tag);
+    return control !== null && control !== trigger && trigger.contains(control);
+  });
 }
 
 // Module-scoped (not a flag on document.body, which the client router swaps) so the document listeners are only added once.
@@ -70,9 +97,10 @@ function initIncidentDetails() {
   initialized = true;
   document.addEventListener('click', (e) => {
     const target = e.target as HTMLElement;
-    const row = target.closest<HTMLElement>('[data-history-incident]');
-    if (row) {
-      openIncidentDetails(row);
+    const trigger = target.closest<HTMLElement>('[data-history-incident]');
+    if (trigger) {
+      if (insideControl(target, trigger)) return;
+      openFromTrigger(trigger);
       return;
     }
     if (target.closest('[data-close-history-incident]')) {
@@ -80,15 +108,16 @@ function initIncidentDetails() {
       return;
     }
     // Clicking the backdrop (the <dialog> element itself, outside its content) closes it.
-    if (target instanceof HTMLDialogElement && target.hasAttribute('data-history-incident-dialog'))
-      target.close();
+    if (target.tagName === 'DIALOG' && target.hasAttribute('data-history-incident-dialog'))
+      (target as HTMLDialogElement).close();
   });
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter' && e.key !== ' ') return;
-    const row = (e.target as HTMLElement).closest<HTMLElement>('[data-history-incident]');
-    if (!row) return;
+    const trigger = (e.target as HTMLElement).closest<HTMLElement>('[data-history-incident]');
+    // Only the focused row itself opens by key, so Enter on its Round link follows the link.
+    if (!trigger || trigger !== e.target) return;
     e.preventDefault();
-    openIncidentDetails(row);
+    openFromTrigger(trigger);
   });
 }
 

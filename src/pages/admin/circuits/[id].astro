@@ -2,8 +2,10 @@
 export const prerender = false;
 
 import AdminLayout from '../../../layouts/AdminLayout.astro';
+import CircuitLayoutDialog from '../../../components/CircuitLayoutDialog.astro';
 import {
   getCircuitLogoBackgrounds,
+  logoBgAttrs,
   type LogoBackground,
   getCircuitById,
   getCircuitCoordinates,
@@ -17,13 +19,29 @@ import {
   getTrackGuidesForLayout,
   createTrackGuide,
   deleteTrackGuide,
-  formatLapTime,
-  formatDate,
   displayLayoutName,
   type Circuit,
   type CircuitLayout,
   type TrackGuide,
 } from '../../../lib/db/circuits';
+import {
+  parseCircuitForm,
+  parseLayoutForm,
+  layoutSaveOutcome,
+  layoutFormStateFor,
+  emptyLayoutFormState,
+  CIRCUIT_EDITOR_MESSAGES,
+  type CircuitFormState,
+  type LayoutFormState,
+  type LogoBackgroundMode,
+} from '../../../lib/circuitEditorForm';
+import {
+  LAYOUT_CATEGORY_LABELS,
+  formatLayoutSubtitle,
+  isLayoutCategory,
+  isStoredLogoColour,
+  normaliseLogoColour,
+} from '../../../lib/circuitCategory';
 import { resolveSupabaseEnv } from '../../../lib/db/client';
 import { uploadToStorage } from '../../../lib/db/assets';
 import { logActivity, actorNameFor } from '../../../lib/activityLog';
@@ -41,6 +59,10 @@ const isNew = id === 'new';
 
 let error: string | null = null;
 let layoutError: string | null = null;
+/** The typed circuit form after a refusal, so it re-renders as typed (circuit-editor BR1.7). */
+let circuitFormState: CircuitFormState | null = null;
+/** The refused layout dialog's typed values and message; its dialogKey picks the dialog to reopen (BR1.19). */
+let layoutFormError: LayoutFormState | null = null;
 
 function extFromFile(file: File): string {
   const fromName = file.name.split('.').pop();
@@ -62,53 +84,47 @@ if (Astro.request.method === 'POST') {
 
   if (intent === 'add-layout' || intent === 'update-layout') {
     if (!isNew && id) {
-      const layoutName = String(form.get('layout_name') ?? '').trim();
-      const lengthKmRaw = String(form.get('length_km') ?? '').trim();
-      const cornersRaw = String(form.get('corners') ?? '').trim();
-      const lapRecordSecondsRaw = String(form.get('lap_record_seconds') ?? '').trim();
-      const lapRecordHolder = String(form.get('lap_record_holder') ?? '').trim();
-      const lapRecordDate = String(form.get('lap_record_date') ?? '').trim();
+      // Every rule runs before any write; a refusal reopens the same dialog with what was typed.
+      const { state, write } = parseLayoutForm(form);
       const layoutId = String(form.get('layout_id') ?? '');
       const layoutImageFile = form.get('layout_image');
 
-      if (!layoutName) {
-        layoutError = 'Layout name is required.';
+      if (!write) {
+        layoutFormError = state;
       } else {
-        const data: Partial<CircuitLayout> = {
-          name: layoutName,
-          length_km: lengthKmRaw ? Number(lengthKmRaw) : null,
-          corners: cornersRaw ? Number(cornersRaw) : null,
-          lap_record_seconds: lapRecordSecondsRaw ? Number(lapRecordSecondsRaw) : null,
-          lap_record_holder: lapRecordHolder || null,
-          lap_record_date: lapRecordDate || null,
-        };
         try {
           let savedLayoutId: string | null = null;
           if (intent === 'add-layout') {
-            const created = await createCircuitLayout(supabaseEnv, accessToken, { ...data, circuit_id: id });
+            const created = await createCircuitLayout(supabaseEnv, accessToken, { ...write, circuit_id: id });
             savedLayoutId = created.id;
-          } else if (layoutId) {
-            await updateCircuitLayout(supabaseEnv, accessToken, layoutId, data);
-            savedLayoutId = layoutId;
+          } else {
+            // A PATCH on a layout deleted in another tab matches no row and resolves to undefined.
+            const saved = layoutId ? await updateCircuitLayout(supabaseEnv, accessToken, layoutId, write) : undefined;
+            const outcome = layoutSaveOutcome(saved);
+            if (outcome.ok) savedLayoutId = layoutId;
+            else layoutFormError = { ...state, error: { field: null, message: outcome.error } };
           }
 
-          if (savedLayoutId && layoutImageFile instanceof File && layoutImageFile.size > 0) {
-            const path = `circuit-layout-${savedLayoutId}-${Date.now()}.${extFromFile(layoutImageFile)}`;
-            const image_url = await uploadToStorage(supabaseEnv, accessToken, 'logos', path, layoutImageFile);
-            await updateCircuitLayout(supabaseEnv, accessToken, savedLayoutId, { image_url });
+          if (savedLayoutId) {
+            if (layoutImageFile instanceof File && layoutImageFile.size > 0) {
+              const path = `circuit-layout-${savedLayoutId}-${Date.now()}.${extFromFile(layoutImageFile)}`;
+              const image_url = await uploadToStorage(supabaseEnv, accessToken, 'logos', path, layoutImageFile);
+              await updateCircuitLayout(supabaseEnv, accessToken, savedLayoutId, { image_url });
+            }
+
+            await logActivity(supabaseEnv, accessToken, actor, {
+              action: intent === 'add-layout' ? 'add' : 'edit',
+              entity_type: 'circuit',
+              entity_label: `${circuitForLog?.name ?? 'Circuit'} — ${write.name} (layout)`,
+              entity_id: savedLayoutId,
+            });
+
+            return Astro.redirect(`/admin/circuits/${id}`, 302);
           }
-
-          await logActivity(supabaseEnv, accessToken, actor, {
-            action: intent === 'add-layout' ? 'add' : 'edit',
-            entity_type: 'circuit',
-            entity_label: `${circuitForLog?.name ?? 'Circuit'} — ${layoutName} (layout)`,
-            entity_id: savedLayoutId,
-          });
-
-          return Astro.redirect(`/admin/circuits/${id}`, 302);
         } catch (err) {
           console.error('Failed to save circuit layout:', err);
-          layoutError = err instanceof Error ? err.message : 'Failed to save this layout.';
+          const message = err instanceof Error ? err.message : 'Failed to save this layout.';
+          layoutFormError = { ...state, error: { field: null, message } };
         }
       }
     }
@@ -181,45 +197,28 @@ if (Astro.request.method === 'POST') {
       error = 'Failed to delete this circuit. Events still referencing it may need reassigning first.';
     }
   } else {
-    const name = String(form.get('name') ?? '').trim();
-    const location = String(form.get('location') ?? '').trim() || null;
+    // Name, then coordinates, then logo background: nothing is written unless all three pass (BR1.7).
+    const parsed = parseCircuitForm(form);
     const logoFile = form.get('logo');
-    // Light/dark plate behind the logo. Only written when it changed, so saving anything else never touches the column.
-    const bgRaw = String(form.get('logo_background') ?? '');
-    const newLogoBg: LogoBackground | null = bgRaw === 'light' || bgRaw === 'dark' ? bgRaw : null;
-    const logoBgChanged = (newLogoBg ?? '') !== String(form.get('had_logo_background') ?? '');
-
-    // Map coordinates (00981_circuit_coordinates.sql). Only sent when something is
-    // being set or cleared, so saving other fields never touches these columns.
-    const latRaw = String(form.get('latitude') ?? '').trim();
-    const lngRaw = String(form.get('longitude') ?? '').trim();
-    const hadCoords = form.get('had_coords') === '1';
-    let coords: { latitude: number | null; longitude: number | null } | null = null;
-    let coordsError: string | null = null;
-    if (latRaw || lngRaw) {
-      const lat = Number(latRaw);
-      const lng = Number(lngRaw);
-      if (!latRaw || !lngRaw || !Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
-        coordsError = 'Latitude and longitude must both be numbers (latitude -90 to 90, longitude -180 to 180), or both left empty.';
-      } else {
-        coords = { latitude: lat, longitude: lng };
-      }
-    } else if (hadCoords) {
-      coords = { latitude: null, longitude: null };
-    }
-
-    if (!name) {
-      error = 'Circuit name is required.';
-    } else if (coordsError) {
-      error = coordsError;
+    if (!parsed.write) {
+      error = parsed.error;
+      circuitFormState = parsed.state;
     } else {
+      const { write } = parsed;
+      // One request; coordinates and the plate are only sent when set or changed (BR1.8).
+      const data = {
+        name: write.name,
+        location: write.location,
+        ...(write.coords ?? {}),
+        ...(write.logoBackground !== undefined ? { logo_background: write.logoBackground } : {}),
+      };
       try {
         let circuitId = isNew ? null : id!;
         if (isNew) {
-          const created = await createCircuit(supabaseEnv, accessToken, { name, location, ...(coords ?? {}) });
+          const created = await createCircuit(supabaseEnv, accessToken, data);
           circuitId = created.id;
         } else {
-          await updateCircuit(supabaseEnv, accessToken, circuitId!, { name, location, ...(coords ?? {}) });
+          await updateCircuit(supabaseEnv, accessToken, circuitId!, data);
         }
 
         if (logoFile instanceof File && logoFile.size > 0) {
@@ -228,14 +227,10 @@ if (Astro.request.method === 'POST') {
           await updateCircuit(supabaseEnv, accessToken, circuitId!, { logo_url });
         }
 
-        if (logoBgChanged) {
-          await updateCircuit(supabaseEnv, accessToken, circuitId!, { logo_background: newLogoBg });
-        }
-
         await logActivity(supabaseEnv, accessToken, actor, {
           action: isNew ? 'add' : 'edit',
           entity_type: 'circuit',
-          entity_label: name,
+          entity_label: write.name,
           entity_id: circuitId,
         });
 
@@ -243,6 +238,7 @@ if (Astro.request.method === 'POST') {
       } catch (err) {
         console.error('Failed to save circuit:', err);
         error = err instanceof Error ? err.message : 'Failed to save changes.';
+        circuitFormState = parsed.state;
       }
     }
   }
@@ -275,6 +271,44 @@ if (!isNew && id) {
     console.error('Failed to load circuit layouts:', err);
   }
 }
+
+const storedMode: LogoBackgroundMode =
+  currentLogoBg === 'light' || currentLogoBg === 'dark'
+    ? currentLogoBg
+    : isStoredLogoColour(currentLogoBg)
+      ? 'custom'
+      : 'none';
+const formState: CircuitFormState = circuitFormState ?? {
+  name: c.name ?? '',
+  location: c.location ?? '',
+  latitude: coordsRow?.latitude != null ? String(coordsRow.latitude) : '',
+  longitude: coordsRow?.longitude != null ? String(coordsRow.longitude) : '',
+  logoBackgroundMode: storedMode,
+  logoBackgroundText: storedMode === 'custom' ? currentLogoBg : '',
+};
+const logoBgError = error === CIRCUIT_EDITOR_MESSAGES.logoBackground;
+// The picker needs a valid #rrggbb; brand blue is only its starting position until a colour is typed.
+const DEFAULT_PICKER_COLOUR = '#4369f5';
+const pickerColour = normaliseLogoColour(formState.logoBackgroundText) ?? DEFAULT_PICKER_COLOUR;
+const customText =
+  formState.logoBackgroundMode === 'custom' ? formState.logoBackgroundText : formState.logoBackgroundText || pickerColour;
+const logoBgOptions: { value: string; mode: LogoBackgroundMode; label: string }[] = [
+  { value: '', mode: 'none', label: 'None' },
+  { value: 'light', mode: 'light', label: 'Light' },
+  { value: 'dark', mode: 'dark', label: 'Dark' },
+  { value: 'custom', mode: 'custom', label: 'Custom' },
+];
+const fieldClass =
+  'rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary';
+
+// A refused layout save reopens its dialog; when that layout is gone (deleted elsewhere), the banner says so.
+const refusedDialogShown =
+  layoutFormError !== null &&
+  (layoutFormError.dialogKey === 'new' || layouts.some((l) => l.id === layoutFormError!.dialogKey));
+const layoutBanner =
+  layoutError ?? (layoutFormError && !refusedDialogShown ? (layoutFormError.error?.message ?? null) : null);
+const dialogStateFor = (key: string, fallback: () => LayoutFormState) =>
+  layoutFormError?.dialogKey === key ? layoutFormError : fallback();
 ---
 
 <AdminLayout title={isNew ? 'New Circuit' : c.name || 'Edit Circuit'} heading={isNew ? 'New Circuit' : c.name || 'Edit Circuit'}>
@@ -282,31 +316,19 @@ if (!isNew && id) {
     <p class="reveal mt-6 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>
   )}
 
-  <form method="POST" data-astro-reload enctype="multipart/form-data" class="reveal mt-8 flex max-w-xl flex-col gap-4" style="transition-delay: 80ms">
+  <form method="POST" data-astro-reload data-circuit-form enctype="multipart/form-data" class="reveal mt-8 flex max-w-xl flex-col gap-4" style="transition-delay: 80ms">
     <label class="flex flex-col gap-1.5 text-sm">
-      <span class="text-white/70">Circuit name</span>
-      <input
-        type="text"
-        name="name"
-        required
-        value={c.name}
-        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-      />
+      <span class="text-white/70">Circuit Name</span>
+      <input type="text" name="name" required value={formState.name} class={fieldClass} />
     </label>
 
     <label class="flex flex-col gap-1.5 text-sm">
       <span class="text-white/70">Location</span>
-      <input
-        type="text"
-        name="location"
-        placeholder="Le Mans, France"
-        value={c.location ?? ''}
-        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-      />
+      <input type="text" name="location" placeholder="Le Mans, France" value={formState.location} class={fieldClass} />
     </label>
 
     <div class="flex flex-col gap-1.5 text-sm">
-      <span class="text-white/70">Map position <span class="text-white/40">(optional — used by the Calendar's Map view)</span></span>
+      <span class="text-white/70">Map Position</span>
       <div class="flex gap-3">
         <input
           type="text"
@@ -314,8 +336,8 @@ if (!isNew && id) {
           name="latitude"
           placeholder="Latitude, e.g. 50.4372"
           aria-label="Latitude"
-          value={coordsRow?.latitude ?? ''}
-          class="w-full rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+          value={formState.latitude}
+          class={`w-full ${fieldClass}`}
         />
         <input
           type="text"
@@ -323,18 +345,17 @@ if (!isNew && id) {
           name="longitude"
           placeholder="Longitude, e.g. 5.9714"
           aria-label="Longitude"
-          value={coordsRow?.longitude ?? ''}
-          class="w-full rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+          value={formState.longitude}
+          class={`w-full ${fieldClass}`}
         />
       </div>
       <input type="hidden" name="had_coords" value={coordsRow?.latitude != null ? '1' : '0'} />
-      <span class="text-xs text-white/40">Without these, this circuit's events don't appear on the map. To find them, right-click the track on Google Maps and click the numbers at the top of the menu to copy them.</span>
     </div>
 
     <div class="flex flex-col gap-1.5 text-sm">
       <span class="text-white/70">Logo</span>
       {c.logo_url && (
-        <img src={c.logo_url} alt="" data-logo-preview {...(currentLogoBg ? { 'data-logo-bg': currentLogoBg } : {})} class="mb-2 h-16 w-16 rounded object-contain ring-1 ring-white/10" />
+        <img src={c.logo_url} alt="" data-logo-preview {...logoBgAttrs(currentLogoBg || null)} class="mb-2 h-16 w-16 rounded object-contain ring-1 ring-white/10" />
       )}
       <input
         type="file"
@@ -342,23 +363,58 @@ if (!isNew && id) {
         accept="image/png,image/jpeg,image/webp,image/svg+xml"
         class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none file:mr-3 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-1.5 file:text-white"
       />
-      <span class="text-xs text-white/40">PNG, JPG, WebP, or SVG. Uploading a new file replaces the current logo.</span>
     </div>
 
-    <label class="flex flex-col gap-1.5 text-sm">
-      <span class="text-white/70">Logo background</span>
-      <select
-        name="logo_background"
-        data-logo-bg-select
-        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+    <fieldset
+      class="flex flex-col gap-1.5 text-sm"
+      data-logo-bg-fieldset
+      {...(logoBgError ? { 'aria-describedby': 'logo-bg-error' } : {})}
+    >
+      <legend class="mb-1.5 text-white/70">Logo Background</legend>
+      <div class="flex flex-wrap gap-4">
+        {logoBgOptions.map((option) => (
+          <label class="flex items-center gap-2 text-white/80">
+            <input
+              type="radio"
+              name="logo_background"
+              value={option.value}
+              checked={formState.logoBackgroundMode === option.mode}
+              {...(option.mode === 'custom' ? { 'data-logo-bg-custom-radio': '' } : {})}
+            />
+            {option.label}
+          </label>
+        ))}
+      </div>
+      <div
+        data-logo-bg-custom-row
+        class="flex items-center gap-2"
+        {...(formState.logoBackgroundMode === 'custom' ? {} : { hidden: true })}
       >
-        <option value="" selected={currentLogoBg === ''}>None</option>
-        <option value="light" selected={currentLogoBg === 'light'}>Light</option>
-        <option value="dark" selected={currentLogoBg === 'dark'}>Dark</option>
-      </select>
+        <input
+          type="color"
+          aria-label="Pick custom colour"
+          value={pickerColour}
+          class="h-9 w-12 rounded-md border border-white/15 bg-white/5"
+        />
+        <label class="flex flex-col gap-1">
+          <span class="sr-only">Custom colour</span>
+          <input
+            type="text"
+            name="logo_background_hex"
+            value={customText}
+            placeholder="#4369f5"
+            spellcheck="false"
+            autocomplete="off"
+            {...(logoBgError ? { 'aria-describedby': 'logo-bg-error', 'aria-invalid': 'true' } : {})}
+            class={fieldClass}
+          />
+        </label>
+      </div>
+      {logoBgError && (
+        <p id="logo-bg-error" class="text-xs text-brand-pink">{CIRCUIT_EDITOR_MESSAGES.logoBackground}</p>
+      )}
       <input type="hidden" name="had_logo_background" value={currentLogoBg} />
-      <span class="text-xs text-white/40">Puts a plate behind this logo everywhere it's shown. Pick Light for a dark logo that gets lost on the dark theme, or Dark for a white logo that gets lost on the light theme.</span>
-    </label>
+    </fieldset>
 
     <div class="mt-2 flex gap-3">
       <button
@@ -375,283 +431,152 @@ if (!isNew && id) {
     </div>
   </form>
 
-  {!isNew && (
+  {!isNew && id && (
     <div class="reveal mt-10 max-w-xl border-t border-white/10 pt-6" style="transition-delay: 90ms">
-      <h2 class="text-lg font-semibold">Layouts</h2>
-      <p class="mt-1 text-sm text-white/50">
-        A circuit can be run in more than one configuration — each layout keeps its own lap record.
-      </p>
+      <div class="flex items-center justify-between gap-3">
+        <h2 class="text-lg font-semibold">Layouts</h2>
+        <button
+          type="button"
+          aria-label="Add Layout"
+          title="Add Layout"
+          data-open-dialog="layout-dialog-new"
+          class="btn btn-sm btn-neutral relative !px-2 after:absolute after:-inset-1.5 after:content-['']"
+        >
+          <svg aria-hidden="true" viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14" /></svg>
+        </button>
+      </div>
 
-      {layoutError && (
-        <p class="mt-4 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-3 text-sm text-white/80">{layoutError}</p>
+      {layoutBanner && (
+        <p class="mt-4 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-3 text-sm text-white/80">{layoutBanner}</p>
       )}
 
       <ul class="mt-4 flex flex-col gap-3">
         {layouts.length === 0 && <li class="text-sm text-white/40">No results.</li>}
-        {layouts.map((layout) => (
-          <li class="rounded-lg bg-brand-ink p-3 text-sm ring-1 ring-white/10">
-            <div class="flex flex-wrap items-center justify-between gap-3">
-              <div class="flex items-center gap-3">
-                {layout.image_url ? (
-                  <img src={layout.image_url} alt="" class="h-10 w-10 flex-none rounded object-cover ring-1 ring-white/10" />
-                ) : (
-                  <div class="h-10 w-10 flex-none rounded bg-white/10"></div>
-                )}
-                <div>
-                  <p class="font-semibold">{displayLayoutName(layout.name)}</p>
-                  <p class="mt-0.5 text-xs text-white/50">
-                    {layout.length_km !== null ? `${layout.length_km} km` : 'Length not set'}
-                    {layout.corners !== null && ` · ${layout.corners} corners`}
-                    {layout.lap_record_seconds !== null && ` · Record ${formatLapTime(layout.lap_record_seconds)}`}
-                    {layout.lap_record_holder && ` — ${layout.lap_record_holder}`}
-                    {layout.lap_record_date && ` (${formatDate(layout.lap_record_date)})`}
-                    {(trackGuidesByLayoutId.get(layout.id)?.length ?? 0) > 0 &&
-                      ` · ${trackGuidesByLayoutId.get(layout.id)!.length} track guide${trackGuidesByLayoutId.get(layout.id)!.length === 1 ? '' : 's'}`}
-                  </p>
+        {layouts.map((layout) => {
+          const guides = trackGuidesByLayoutId.get(layout.id) ?? [];
+          const subtitle = formatLayoutSubtitle(layout.length_km, layout.corners);
+          return (
+            <li class="rounded-lg bg-brand-ink p-3 text-sm ring-1 ring-white/10">
+              <div class="flex flex-wrap items-center justify-between gap-3">
+                <div class="flex items-center gap-3">
+                  {layout.image_url ? (
+                    <img src={layout.image_url} alt="" class="h-10 w-10 flex-none rounded object-cover ring-1 ring-white/10" />
+                  ) : (
+                    <div class="h-10 w-10 flex-none rounded bg-white/10"></div>
+                  )}
+                  <div>
+                    <p class="flex flex-wrap items-center gap-2 font-semibold">
+                      {displayLayoutName(layout.name)}
+                      {isLayoutCategory(layout.category) && (
+                        <span class="rounded-md border border-white/15 px-1.5 text-xs font-normal text-white/70">
+                          {LAYOUT_CATEGORY_LABELS[layout.category]}
+                        </span>
+                      )}
+                    </p>
+                    {subtitle && <p class="mt-0.5 text-xs text-white/50">{subtitle}</p>}
+                  </div>
+                </div>
+                <div class="flex items-center gap-2">
+                  <a href={`/admin/circuits/${id}/map/${layout.id}`} class="btn btn-neutral btn-sm">Map &amp; Pins</a>
+                  <button type="button" class="btn btn-neutral btn-sm" data-open-dialog={`layout-dialog-${layout.id}`}>
+                    Edit
+                  </button>
+                  <form method="POST" data-astro-reload>
+                    <input type="hidden" name="intent" value="delete-layout" />
+                    <input type="hidden" name="layout_id" value={layout.id} />
+                    <button type="submit" class="text-xs font-semibold text-white/40 transition hover:text-brand-pink">Remove</button>
+                  </form>
                 </div>
               </div>
-              <div class="flex items-center gap-2">
-                <a href={`/admin/circuits/${id}/map/${layout.id}`} class="btn btn-neutral btn-sm">Map &amp; pins</a>
-                <details class="relative">
-                  <summary class="btn btn-neutral btn-sm list-none">
-                    Edit
-                  </summary>
-                  <form
-                    method="POST"
-                    data-astro-reload
-                    enctype="multipart/form-data"
-                    class="absolute right-0 z-10 mt-2 flex w-72 flex-col gap-2 rounded-lg border border-white/10 bg-brand-ink p-4 shadow-xl"
-                  >
-                    <input type="hidden" name="intent" value="update-layout" />
-                    <input type="hidden" name="layout_id" value={layout.id} />
-                    <label class="flex flex-col gap-1 text-[11px] text-white/50">
-                      Layout name
-                      <input
-                        type="text"
-                        name="layout_name"
-                        required
-                        value={layout.name}
-                        class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:border-brand-primary"
-                      />
-                    </label>
-                    <label class="flex flex-col gap-1 text-[11px] text-white/50">
-                      Length (km)
-                      <input
-                        type="number"
-                        step="0.001"
-                        name="length_km"
-                        value={layout.length_km ?? ''}
-                        class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:border-brand-primary"
-                      />
-                    </label>
-                    <label class="flex flex-col gap-1 text-[11px] text-white/50">
-                      Corners
-                      <input
-                        type="number"
-                        step="1"
-                        min="0"
-                        name="corners"
-                        value={layout.corners ?? ''}
-                        class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:border-brand-primary"
-                      />
-                    </label>
-                    <label class="flex flex-col gap-1 text-[11px] text-white/50">
-                      Lap record (seconds)
-                      <input
-                        type="number"
-                        step="0.001"
-                        name="lap_record_seconds"
-                        placeholder="102.512"
-                        value={layout.lap_record_seconds ?? ''}
-                        class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:border-brand-primary"
-                      />
-                      {layout.lap_record_seconds !== null && (
-                        <span class="text-white/40">= {formatLapTime(layout.lap_record_seconds)}</span>
-                      )}
-                    </label>
-                    <label class="flex flex-col gap-1 text-[11px] text-white/50">
-                      Record holder
-                      <input
-                        type="text"
-                        name="lap_record_holder"
-                        value={layout.lap_record_holder ?? ''}
-                        class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:border-brand-primary"
-                      />
-                    </label>
-                    <label class="flex flex-col gap-1 text-[11px] text-white/50">
-                      Record date
-                      <input
-                        type="date"
-                        name="lap_record_date"
-                        value={layout.lap_record_date ?? ''}
-                        class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:border-brand-primary"
-                      />
-                    </label>
-                    <label class="flex flex-col gap-1 text-[11px] text-white/50">
-                      Layout map
-                      <input
-                        type="file"
-                        name="layout_image"
-                        accept="image/png,image/jpeg,image/webp,image/svg+xml"
-                        class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-xs text-white outline-none file:mr-2 file:rounded-md file:border-0 file:bg-white/10 file:px-2 file:py-1 file:text-white"
-                      />
-                      <span class="text-white/40">Uploading a new file replaces this layout's current map. Shown on the Event Briefing page, square.</span>
-                    </label>
-                    <button
-                      type="submit"
-                      class="btn btn-primary btn-sm mt-1"
-                    >
-                      Save
-                    </button>
-                  </form>
-                </details>
-                <form method="POST" data-astro-reload>
-                  <input type="hidden" name="intent" value="delete-layout" />
-                  <input type="hidden" name="layout_id" value={layout.id} />
-                  <button type="submit" class="text-xs font-semibold text-white/40 transition hover:text-brand-pink">Remove</button>
-                </form>
-              </div>
-            </div>
 
-            <div class="mt-3 border-t border-white/10 pt-3">
-              <p class="text-xs font-semibold text-white/50">Track Guides</p>
-              {(trackGuidesByLayoutId.get(layout.id)?.length ?? 0) === 0 && (
-                <p class="mt-1 text-xs text-white/30">None on file.</p>
-              )}
-              {(trackGuidesByLayoutId.get(layout.id)?.length ?? 0) > 0 && (
-                <ul class="mt-1.5 flex flex-col gap-1">
-                  {trackGuidesByLayoutId.get(layout.id)!.map((guide) => (
-                    <li class="flex flex-wrap items-center justify-between gap-2 rounded-md bg-white/5 px-2.5 py-1.5 text-xs">
-                      <a href={guide.url} target="_blank" rel="noopener noreferrer" class="text-brand-primary hover:underline">
-                        {guide.title || guide.url}
-                      </a>
-                      <form method="POST" data-astro-reload>
-                        <input type="hidden" name="intent" value="delete-track-guide" />
-                        <input type="hidden" name="track_guide_id" value={guide.id} />
-                        <button type="submit" class="font-semibold text-white/40 transition hover:text-brand-pink">Remove</button>
-                      </form>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              <details class="relative mt-2">
-                <summary class="cursor-pointer list-none text-xs font-semibold text-white/50 transition hover:text-white/80">
-                  + Add a track guide
-                </summary>
-                <form method="POST" data-astro-reload class="mt-2 flex flex-col gap-2 rounded-lg border border-white/10 bg-brand-ink p-3">
-                  <input type="hidden" name="intent" value="add-track-guide" />
-                  <input type="hidden" name="layout_id" value={layout.id} />
-                  <label class="flex flex-col gap-1 text-[11px] text-white/50">
-                    Title (optional)
-                    <input
-                      type="text"
-                      name="title"
-                      placeholder="e.g. Full Course Guide"
-                      class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:border-brand-primary"
-                    />
-                  </label>
-                  <label class="flex flex-col gap-1 text-[11px] text-white/50">
-                    YouTube URL
-                    <input
-                      type="url"
-                      name="url"
-                      required
-                      placeholder="https://youtube.com/watch?v=…"
-                      class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:border-brand-primary"
-                    />
-                  </label>
+              <div class="mt-3 border-t border-white/10 pt-3">
+                <div class="flex items-center justify-between gap-3">
+                  <p class="text-xs font-semibold text-white/50">Track Guides</p>
                   <button
-                    type="submit"
-                    class="btn btn-primary btn-sm self-start"
+                    type="button"
+                    aria-label="Add Track Guide"
+                    title="Add Track Guide"
+                    data-open-dialog="track-guide-dialog"
+                    data-layout-id={layout.id}
+                    class="btn btn-sm btn-neutral relative !px-2 after:absolute after:-inset-1.5 after:content-['']"
                   >
-                    Add
+                    <svg aria-hidden="true" viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14" /></svg>
                   </button>
-                </form>
-              </details>
-            </div>
-          </li>
-        ))}
+                </div>
+                {guides.length === 0 && <p class="mt-1 text-xs text-white/50">No track guides.</p>}
+                {guides.length > 0 && (
+                  <ul class="mt-1.5 flex flex-col gap-1">
+                    {guides.map((guide) => (
+                      <li class="flex flex-wrap items-center justify-between gap-2 rounded-md bg-white/5 px-2.5 py-1.5 text-xs">
+                        <a href={guide.url} target="_blank" rel="noopener noreferrer" class="text-brand-primary hover:underline">
+                          {guide.title || guide.url}
+                        </a>
+                        <form method="POST" data-astro-reload>
+                          <input type="hidden" name="intent" value="delete-track-guide" />
+                          <input type="hidden" name="track_guide_id" value={guide.id} />
+                          <button type="submit" class="font-semibold text-white/40 transition hover:text-brand-pink">Remove</button>
+                        </form>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </li>
+          );
+        })}
       </ul>
 
-      <details class="relative mt-4">
-        <summary class="btn btn-neutral list-none">
-          Add a layout
-        </summary>
-        <form method="POST" data-astro-reload enctype="multipart/form-data" class="mt-3 flex flex-col gap-2 rounded-lg border border-white/10 bg-white/[0.03] p-4">
-          <input type="hidden" name="intent" value="add-layout" />
-          <label class="flex flex-col gap-1.5 text-sm">
-            <span class="text-white/60">Layout name</span>
+      <CircuitLayoutDialog
+        state={dialogStateFor('new', emptyLayoutFormState)}
+        circuitId={id}
+        openOnLoad={layoutFormError?.dialogKey === 'new'}
+      />
+      {layouts.map((layout) => (
+        <CircuitLayoutDialog
+          state={dialogStateFor(layout.id, () => layoutFormStateFor(layout))}
+          circuitId={id}
+          openOnLoad={layoutFormError?.dialogKey === layout.id}
+        />
+      ))}
+
+      <dialog
+        id="track-guide-dialog"
+        aria-labelledby="track-guide-dialog-title"
+        class="w-full max-w-md rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60"
+      >
+        <form method="POST" data-astro-reload class="flex flex-col gap-3 p-5">
+          <input type="hidden" name="intent" value="add-track-guide" />
+          <input type="hidden" name="layout_id" value="" />
+          <div class="flex items-center justify-between">
+            <h2 id="track-guide-dialog-title" class="font-display text-xl">Add track guide</h2>
+            <button type="button" data-close-dialog aria-label="Close" class="text-white/40 hover:text-white">✕</button>
+          </div>
+          <label class="flex flex-col gap-1 text-[11px] text-white/50">
+            Title (optional)
             <input
               type="text"
-              name="layout_name"
+              name="title"
+              placeholder="e.g. Full Course Guide"
+              data-first-field
+              class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary"
+            />
+          </label>
+          <label class="flex flex-col gap-1 text-[11px] text-white/50">
+            YouTube URL
+            <input
+              type="url"
+              name="url"
               required
-              placeholder="Full Course"
-              class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+              placeholder="https://youtube.com/watch?v=…"
+              class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary"
             />
           </label>
-          <label class="flex flex-col gap-1.5 text-sm">
-            <span class="text-white/60">Length (km)</span>
-            <input
-              type="number"
-              step="0.001"
-              name="length_km"
-              class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-            />
-          </label>
-          <label class="flex flex-col gap-1.5 text-sm">
-            <span class="text-white/60">Corners</span>
-            <input
-              type="number"
-              step="1"
-              min="0"
-              name="corners"
-              class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-            />
-          </label>
-          <label class="flex flex-col gap-1.5 text-sm">
-            <span class="text-white/60">Lap record (seconds)</span>
-            <input
-              type="number"
-              step="0.001"
-              name="lap_record_seconds"
-              placeholder="102.512"
-              class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-            />
-          </label>
-          <label class="flex flex-col gap-1.5 text-sm">
-            <span class="text-white/60">Record holder</span>
-            <input
-              type="text"
-              name="lap_record_holder"
-              class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-            />
-          </label>
-          <label class="flex flex-col gap-1.5 text-sm">
-            <span class="text-white/60">Record date</span>
-            <input
-              type="date"
-              name="lap_record_date"
-              class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-            />
-          </label>
-          <label class="flex flex-col gap-1.5 text-sm">
-            <span class="text-white/60">Layout map</span>
-            <input
-              type="file"
-              name="layout_image"
-              accept="image/png,image/jpeg,image/webp,image/svg+xml"
-              class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none file:mr-3 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-1.5 file:text-white"
-            />
-            <span class="text-xs text-white/40">Optional — shown on the Event Briefing page, square.</span>
-          </label>
-          <button
-            type="submit"
-            class="btn btn-primary mt-1 self-start"
-          >
-            Add Layout
-          </button>
+          <div class="mt-1 flex justify-end gap-2">
+            <button type="button" data-close-dialog class="btn btn-neutral">Cancel</button>
+            <button type="submit" class="btn btn-primary">Add</button>
+          </div>
         </form>
-      </details>
+      </dialog>
     </div>
   )}
 
@@ -670,20 +595,5 @@ if (!isNew && id) {
 </AdminLayout>
 
 <script>
-  document.addEventListener('astro:page-load', () => {
-    document.querySelectorAll<HTMLButtonElement>('[data-confirm]').forEach((btn) => {
-      btn.addEventListener('click', (e) => {
-        if (!confirm(btn.dataset.confirm || 'Are you sure?')) e.preventDefault();
-      });
-    });
-
-    // Live preview of the chosen logo background on the saved logo thumbnail.
-    const bgSelect = document.querySelector<HTMLSelectElement>('[data-logo-bg-select]');
-    const preview = document.querySelector<HTMLImageElement>('[data-logo-preview]');
-    bgSelect?.addEventListener('change', () => {
-      if (!preview) return;
-      if (bgSelect.value) preview.setAttribute('data-logo-bg', bgSelect.value);
-      else preview.removeAttribute('data-logo-bg');
-    });
-  });
+  import '../../../scripts/circuitEditor';
 </script>

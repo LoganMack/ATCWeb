@@ -130,12 +130,13 @@ export interface BarView {
   bestPct: number;
   /** The current total's races, in calendar order; dropped rounds are not part of it. */
   segments: BarSegment[];
-  /** "120 → 168", or the final total once the season is over. */
-  numbers: string;
-  /** "+48" for a chaser, "R6" for the round an eliminated row went out, else empty. */
-  needs: string;
+  /** The Pts column: the current counted total, "0" included. */
+  points: string;
+  /** The best-possible part's tooltip; the counted total once the row is champion or final. */
+  bestLabel: string;
+  /** An eliminated row's tag names the round it went out ("Eliminated (Round 6)"). */
   chip: { label: string; tone: ChipTone };
-  /** The row's text equivalent: every value the bar, the segments and the right column show. */
+  /** The row's text equivalent: every value the bar, the segments and the row's columns show. */
   ariaLabel: string;
 }
 
@@ -243,20 +244,20 @@ export function barSegments(state: CalcState, snapshot: Snapshot, row: Contentio
   return out;
 }
 
+/** The bars' tag: the matrix's, except that an eliminated row names its round (BR1.4). */
+function barChip(row: ContentionRow, nothingRun: boolean): { label: string; tone: ChipTone } {
+  const chip = chipFor(row, nothingRun);
+  if (row.status !== 'out' || row.outAfterRound === null) return chip;
+  return { ...chip, label: `Eliminated (Round ${row.outAfterRound})` };
+}
+
 export function barViews(state: CalcState, snapshot: Snapshot): BarView[] {
   const scale = barScale(snapshot.rows);
   return snapshot.rows.map((row) => {
     const done = row.status === 'champion' || row.status === 'final';
-    const chip = chipFor(row, snapshot.nothingRun);
+    const chip = barChip(row, snapshot.nothingRun);
     const segments = barSegments(state, snapshot, row);
-    const needs =
-      row.status === 'out'
-        ? row.outAfterRound !== null
-          ? `R${row.outAfterRound}`
-          : ''
-        : row.needs !== null && row.needs > 0
-          ? `+${row.needs}`
-          : '';
+    const best = done ? row.countedTotal : row.bestCase;
     const sentence = [
       row.name,
       spokenStatus(row, chip.label),
@@ -270,10 +271,10 @@ export function barViews(state: CalcState, snapshot: Snapshot): BarView[] {
       position: row.position,
       name: row.name,
       countedPct: pct(row.countedTotal, scale),
-      bestPct: pct(done ? row.countedTotal : row.bestCase, scale),
+      bestPct: pct(best, scale),
       segments,
-      numbers: done ? `${row.countedTotal}` : `${row.countedTotal} → ${row.bestCase}`,
-      needs,
+      points: String(row.countedTotal),
+      bestLabel: `Best Possible: ${best} pts`,
       chip,
       ariaLabel: sentence.join(', '),
     };
