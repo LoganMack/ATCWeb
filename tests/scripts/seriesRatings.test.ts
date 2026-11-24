@@ -1,9 +1,10 @@
 /**
  * The Series iRating table (src/scripts/seriesRatings.ts, src/lib/rating/trend.ts, the ratings fragment; FR7.2,
  * FR8.3, NFR6): header sorting and its direction, the name search and its empty state, the result count, the
- * trend line's direction and label, that a hidden driver's row is never a link, each row's history toggle and
- * request, and the history chart (src/scripts/ratingHistoryChart.ts) with its keyboard steps and text
- * equivalent, drawn into a small fake document (tests/scripts/fakeDom.ts).
+ * trend line's direction, label and up and down runs, that a hidden driver's row is never a link, the parsing
+ * of the history and the fragment's slot list, and each row's history toggle and request, which hands the slot
+ * list to the chart, in a small fake document (tests/scripts/fakeDom.ts). The chart itself is covered in
+ * tests/scripts/ratingHistoryChart.test.ts.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -12,20 +13,13 @@ import {
   matchesSearch,
   nextSort,
   parseHistory,
+  parseTimeline,
   resultCountText,
   sortEntries,
   type RatingEntry,
 } from '../../src/scripts/seriesRatings';
-import {
-  chartGeometry,
-  historySummary,
-  nearestIndex,
-  pointLines,
-  positionLabel,
-  raceLabel,
-  renderHistoryChart,
-} from '../../src/scripts/ratingHistoryChart';
 import type { RatingHistoryPoint } from '../../src/lib/db/seriesRatings';
+import type { TimelineSlot } from '../../src/lib/rating/timeline';
 import { TREND_HEIGHT, TREND_WIDTH, trendLine } from '../../src/lib/rating/trend';
 import { installFakeDom, type FakeDocument } from './fakeDom';
 
@@ -111,7 +105,44 @@ describe('the trend line', () => {
       label: 'Rising over last 2 races, 1350 to 1416',
     });
     expect(trendLine([1400])).toMatchObject({ direction: 'flat', label: 'Level over 1 race, 1400 to 1400' });
-    expect(trendLine([])).toEqual({ points: '', direction: 'flat', label: 'No rated races yet' });
+  });
+
+  it('colours each run by its own direction while the word describes the window (AC1.1.2)', () => {
+    const trend = trendLine([1400, 1450, 1500, 1460, 1440, 1520]);
+    expect(trend.direction).toBe('up');
+    expect(trend.label).toBe('Rising over last 6 races, 1400 to 1520');
+    expect(trend.runs.map((r) => r.direction)).toEqual(['up', 'down', 'up']);
+    expect(trend.dot).toBeNull();
+    // Each run starts where the previous one ended, so the line is unbroken.
+    const runs = trend.runs.map((r) => r.points.split(' '));
+    expect(runs.map((r) => r.length)).toEqual([3, 3, 2]);
+    expect(runs[1][0]).toBe(runs[0][runs[0].length - 1]);
+    expect(runs[2][0]).toBe(runs[1][runs[1].length - 1]);
+  });
+
+  it('draws a dot for one value and nothing for none (BR1.4)', () => {
+    expect(trendLine([1400])).toMatchObject({ runs: [], dot: { x: 40, y: 10 } });
+    expect(trendLine([])).toEqual({
+      points: '',
+      direction: 'flat',
+      label: 'No rated races yet',
+      runs: [],
+      dot: null,
+    });
+  });
+
+  it('keeps the runs to the last 20 values inside the 80×20 box', () => {
+    const values = Array.from({ length: 25 }, (_, i) => (i % 2 === 0 ? 1000 + i * 10 : 990 + i * 10));
+    const { runs } = trendLine(values);
+    const coords = runs.flatMap((r) => r.points.split(' ')).map((p) => p.split(',').map(Number));
+    // 19 segments drawn: 20 points plus one shared point per run boundary.
+    expect(coords).toHaveLength(20 + runs.length - 1);
+    for (const [x, y] of coords) {
+      expect(x).toBeGreaterThanOrEqual(0);
+      expect(x).toBeLessThanOrEqual(TREND_WIDTH);
+      expect(y).toBeGreaterThanOrEqual(0);
+      expect(y).toBeLessThanOrEqual(TREND_HEIGHT);
+    }
   });
 
   it('draws at most the last 20 values inside the 80×20 box', () => {
@@ -158,6 +189,30 @@ describe('the ratings fragment', () => {
     // The name column stays pinned and opaque, so the shared stripe rule paints it too.
     expect(FRAGMENT).toMatch(/<th scope="row" class="sticky left-0 z-10 bg-brand-ink/);
   });
+
+  it('draws a polyline per run coloured by its direction, and a dot for one value (BR1.1, BR1.4)', () => {
+    expect(FRAGMENT).toMatch(
+      /trend\.runs\.map\(\(run\) => \(\s*<polyline points=\{run\.points\} class=\{run\.direction === 'down' \? 'text-brand-pink' : 'text-brand-blue'\} data-dir=\{run\.direction\}/,
+    );
+    expect(FRAGMENT).toMatch(
+      /\{trend\.dot && <circle cx=\{trend\.dot\.x\} cy=\{trend\.dot\.y\} r="1\.5" class="text-brand-blue" fill="currentColor" \/>\}/,
+    );
+    // The SVG itself carries no colour, so no line is one colour unless every segment goes one way.
+    const svg = /<svg[\s\S]*?data-trend=\{trend\.direction\}\s*>/.exec(FRAGMENT)?.[0] ?? '';
+    expect(svg).not.toBe('');
+    expect(svg).not.toMatch(/text-brand-|class:list/);
+    expect(FRAGMENT).not.toContain('points={trend.points}');
+  });
+
+  it('embeds the slot list once, through safeJson, only when there are rows (BR1.7, NFR3.4)', () => {
+    const tag =
+      '<script type="application/json" id="rating-timeline" data-rating-timeline set:html={safeJson(timeline)} />';
+    expect(FRAGMENT.split(tag)).toHaveLength(2);
+    const rowsBlock = FRAGMENT.slice(FRAGMENT.indexOf('{rows.length > 0 && ('));
+    expect(rowsBlock).toContain(tag);
+    expect(FRAGMENT.indexOf(tag)).toBeGreaterThan(FRAGMENT.indexOf('</table>'));
+    expect(FRAGMENT.indexOf(tag)).toBeLessThan(FRAGMENT.indexOf('</section>'));
+  });
 });
 
 describe('the history request', () => {
@@ -174,43 +229,62 @@ describe('the history request', () => {
     expect(parseHistory({ steps: [] })).toEqual([]);
     for (const bad of [null, {}, { steps: 'x' }, 'text']) expect(parseHistory(bad)).toBeNull();
   });
+
+  it('keeps integer i and n (n at least 1) and leaves other values out, keeping the step (BR1.14)', () => {
+    const good = { d: '2026-04-01', s: 'ATC18', t: 'Spa', r: 0, p: 3, f: 12, v: 1450 };
+    expect(parseHistory({ steps: [{ ...good, i: 102, n: 3 }] })).toEqual([{ ...good, i: 102, n: 3 }]);
+    const loose = parseHistory({
+      steps: [
+        { ...good, i: 1.5, n: 0 },
+        { ...good, i: '102', n: null },
+      ],
+    })!;
+    expect(loose).toEqual([good, good]);
+    for (const step of loose) {
+      expect('i' in step).toBe(false);
+      expect('n' in step).toBe(false);
+    }
+  });
+});
+
+const FIXED_SLOTS: TimelineSlot[] = [
+  { i: 101, s: 'ATC1' },
+  { i: 102, s: 'ATC1' },
+  { i: 201, s: 'ATC2' },
+  { i: 202, s: 'ATC2' },
+  { i: 301, s: 'ATC3' },
+];
+
+describe('the slot list', () => {
+  it('reads the fragment’s slots and drops extra keys', () => {
+    expect(parseTimeline(JSON.stringify(FIXED_SLOTS))).toEqual(FIXED_SLOTS);
+    expect(parseTimeline('[{"i":101,"s":"ATC1","x":1}]')).toEqual([{ i: 101, s: 'ATC1' }]);
+  });
+
+  it('gives null for a missing, malformed or empty list, so the chart spaces races evenly (BR1.13)', () => {
+    for (const bad of [
+      null,
+      undefined,
+      '',
+      '{not json',
+      '{"i":1,"s":"A"}',
+      '[]',
+      '[{"i":1.5,"s":"A"}]',
+      '[{"i":1,"s":2}]',
+      '[null]',
+    ]) {
+      expect(parseTimeline(bad), String(bad)).toBeNull();
+    }
+  });
 });
 
 const POINTS: RatingHistoryPoint[] = [
-  { d: '2026-01-10', s: 'ATC17', t: 'Spa', r: 0, p: 3, f: 12, v: 1400 },
-  { d: '2026-01-17', s: 'ATC17', t: 'Monza', r: 2, p: 1, f: 10, v: 1480 },
-  { d: '2026-04-04', s: 'ATC18', t: 'Imola', r: 0, p: 7, f: 14, v: 1455 },
+  { d: '2026-01-10', s: 'ATC1', t: 'Spa', r: 0, p: 3, f: 12, v: 1400, i: 101, n: 1 },
+  { d: '2026-01-17', s: 'ATC2', t: 'Monza', r: 0, p: 1, f: 10, v: 1480, i: 201, n: 1 },
+  { d: '2026-04-04', s: 'ATC3', t: 'Imola', r: 0, p: 7, f: 14, v: 1455, i: 301, n: 1 },
 ];
 
-describe('the history chart', () => {
-  it('spaces races evenly, draws higher ratings higher, and marks each new season', () => {
-    const geo = chartGeometry(POINTS, 720);
-    expect(geo.xs[1] - geo.xs[0]).toBeCloseTo(geo.xs[2] - geo.xs[1], 5);
-    expect(geo.ys[1]).toBeLessThan(geo.ys[0]);
-    expect(geo.path.startsWith('M')).toBe(true);
-    expect(geo.path.split(' L')).toHaveLength(3);
-    expect(geo.seasons).toEqual([{ x: geo.xs[2], name: 'ATC18' }]);
-    // Gridlines cover every value.
-    const values = geo.ticks.map((t) => t.value);
-    expect(Math.min(...values)).toBeLessThanOrEqual(1400);
-    expect(Math.max(...values)).toBeGreaterThanOrEqual(1480);
-    expect(nearestIndex(geo.xs, geo.xs[2] - 1)).toBe(2);
-  });
-
-  it('names the race, the position used and the rating after', () => {
-    expect(raceLabel(POINTS[0])).toBe('ATC17 · Spa · 10 Jan 2026');
-    expect(raceLabel(POINTS[1])).toBe('ATC17 · Monza · Race 2 · 17 Jan 2026');
-    expect(positionLabel(POINTS[0], 'Overall')).toBe('P3 of 12 overall');
-    expect(positionLabel(POINTS[2], 'Alpha')).toBe('P7 of 14 in Alpha');
-    expect(pointLines(POINTS[1], 'Overall')).toEqual([
-      'ATC17 · Monza · Race 2 · 17 Jan 2026',
-      'P1 of 10 overall · Rating 1480',
-    ]);
-    expect(historySummary(POINTS, 'Abe', 'Overall')).toBe(
-      'Abe’s Overall rating over 3 rated races, 10 Jan 2026 to 4 Apr 2026: now 1455, highest 1480, lowest 1400.',
-    );
-  });
-
+describe('opening a row', () => {
   describe('in a page', () => {
     let doc: FakeDocument;
     beforeEach(() => {
@@ -220,48 +294,8 @@ describe('the history chart', () => {
       vi.unstubAllGlobals();
     });
 
-    it('draws the line, a text summary and a hidden table, and steps through races by keyboard', () => {
-      const container = doc.createElement('div');
-      container.clientWidth = 800;
-      doc.body.append(container);
-      renderHistoryChart(container as never, POINTS, { name: 'Abe', kindLabel: 'Overall' });
-
-      const summary = container.querySelector('[data-chart-summary]')!;
-      expect(summary.textContent).toContain('3 rated races');
-      const plot = container.querySelector('[data-chart-plot]')!;
-      expect(plot.getAttribute('tabindex')).toBe('0');
-      expect(plot.getAttribute('aria-describedby')).toBe(summary.getAttribute('id'));
-      expect(container.querySelectorAll('path')).toHaveLength(1);
-      expect(container.querySelector('path')!.classes).toContain('text-brand-blue');
-      const rows = container.querySelectorAll('table tbody tr');
-      expect(rows.map((r) => r.children.map((c) => c.textContent))).toEqual([
-        ['ATC17 · Spa · 10 Jan 2026', 'P3 of 12 overall', '1400'],
-        ['ATC17 · Monza · Race 2 · 17 Jan 2026', 'P1 of 10 overall', '1480'],
-        ['ATC18 · Imola · 4 Apr 2026', 'P7 of 14 overall', '1455'],
-      ]);
-
-      // Focus shows the latest race; arrows, Home and End move along and announce each one.
-      const status = container.querySelector('[data-chart-status]')!;
-      const tip = container.querySelector('[data-chart-tip]')!;
-      plot.focus();
-      expect(tip.classes).not.toContain('hidden');
-      expect(status.textContent).toBe('ATC18 · Imola · 4 Apr 2026. P7 of 14 overall · Rating 1455');
-      const left = plot.dispatch('keydown', { key: 'ArrowLeft' });
-      expect(left.defaultPrevented).toBe(true);
-      expect(status.textContent).toContain('Monza');
-      plot.dispatch('keydown', { key: 'Home' });
-      expect(status.textContent).toContain('Spa');
-      plot.dispatch('keydown', { key: 'ArrowLeft' });
-      expect(status.textContent).toContain('Spa');
-      plot.dispatch('keydown', { key: 'End' });
-      expect(status.textContent).toContain('Imola');
-      expect(plot.dispatch('keydown', { key: 'a' }).defaultPrevented).toBe(false);
-      plot.dispatch('blur');
-      expect(tip.classes).toContain('hidden');
-    });
-
     /** A two-row ratings table as the fragment renders it, plus the shell's search box. */
-    function ratingsPage() {
+    function ratingsPage(timeline?: string) {
       const el = (
         tag: string,
         attrs: Record<string, string> = {},
@@ -307,6 +341,15 @@ describe('the history chart', () => {
         { 'data-series-ratings': '', 'data-rating-class': 'Alpha', 'data-rating-kind-label': 'Alpha' },
         el('div', { 'data-rating-table-wrap': '' }, el('table', { 'data-rating-table': '' }, tbody)),
       );
+      if (timeline !== undefined) {
+        const script = el('script', {
+          type: 'application/json',
+          id: 'rating-timeline',
+          'data-rating-timeline': '',
+        });
+        script.textContent = timeline;
+        section.append(script);
+      }
       doc.body.append(search, el('div', { 'data-ratings-view': '' }, section));
       return { tbody, search };
     }
@@ -331,7 +374,9 @@ describe('the history chart', () => {
         '/advanced-stats/ratings/history?class=Alpha&driver=h42',
         expect.anything(),
       );
-      expect(detail.querySelector('[data-chart-summary]')!.textContent).toContain('Abe’s Alpha rating');
+      expect(detail.querySelector('[data-chart-plot]')!.getAttribute('aria-label')).toContain(
+        'Abe’s Alpha rating chart',
+      );
 
       toggle.click();
       expect(toggle.getAttribute('aria-expanded')).toBe('false');
@@ -356,11 +401,29 @@ describe('the history chart', () => {
       error.mockRestore();
     });
 
-    it('says so in words when a driver has no races yet', () => {
-      const container = doc.createElement('div');
-      renderHistoryChart(container as never, [], { name: 'Abe', kindLabel: 'Alpha' });
-      expect(container.children).toHaveLength(1);
-      expect(container.textContent).toBe('Abe has no rated races in Alpha yet.');
+    /** Opens the first row and returns the x where its first drawn path starts. */
+    async function firstPathX(timeline?: string): Promise<number> {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => ({ ok: true, json: async () => ({ steps: POINTS }) })),
+      );
+      const { tbody } = ratingsPage(timeline);
+      vi.resetModules();
+      await import('../../src/scripts/seriesRatings');
+      tbody.querySelectorAll('[data-rating-toggle]')[0].click();
+      const detail = tbody.querySelectorAll('[data-rating-detail]')[0];
+      await vi.waitFor(() => expect(detail.querySelector('path[data-dir]')).not.toBeNull());
+      const d = detail.querySelector('path[data-dir]')!.getAttribute('d')!;
+      return Number(/^M([\d.]+),/.exec(d)![1]);
+    }
+
+    // The fake container has no width, so the chart draws at 720: a plot 662 px wide from x = 44.
+    it('passes the section’s slot list to the chart, so races sit in their round’s slot', async () => {
+      expect(await firstPathX(JSON.stringify(FIXED_SLOTS))).toBeCloseTo(44 + (0.5 / 5) * 662, 1);
+    });
+
+    it('spaces races evenly when the section carries no slot list', async () => {
+      expect(await firstPathX()).toBeCloseTo(44 + (0.5 / 3) * 662, 1);
     });
   });
 });

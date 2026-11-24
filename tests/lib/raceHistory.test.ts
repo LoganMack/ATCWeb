@@ -4,8 +4,16 @@
  * Shapes from driver 49a39606…, an Alpha driver: ATC18 Round 6 (89494354, unposted, laps down) and
  * ATC16 Round 1 (82494956, a normal finish).
  */
-import { describe, expect, it } from 'vitest';
-import { classStartingPositions, historyFinish, type ClassFieldRow } from '../../src/lib/results/raceHistory';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  classStartingPositions,
+  getDriverRaceHistory,
+  historyFinish,
+  type ClassFieldRow,
+  type DriverRaceHistoryRow,
+} from '../../src/lib/results/raceHistory';
+import { ROUND_WET_FLAGS_SELECT } from '../../src/lib/db/events';
+import type { SupabaseEnv } from '../../src/lib/db/client';
 import {
   classLeaders,
   classMarginText,
@@ -114,5 +122,233 @@ describe('Races table Class margin (BR3.3, BR3.4)', () => {
     expect(marginSortValue('7.500')).toBe(7.5);
     expect(marginSortValue('-2L')).toBe(1_000_002);
     expect(marginSortValue('—')).toBeNull();
+  });
+});
+
+/**
+ * The Weather and Track Type fields (driver-splits U7: BR1.2, BR1.3, BR1.5, BR1.7, BR1.13; NFR1.1, NFR1.2,
+ * NFR1.4, NFR2.2, NFR3.4, NFR7.4). fetch is stubbed; no network. Rounds: 100 on a one-layout oval (races 1
+ * to 3, linked event with race 2 wet), 200 on a layout with no category, 300 on a layout with an unknown
+ * category, 400 on a track with no circuit row (layout unresolved).
+ */
+describe('getDriverRaceHistory wet and category fields', () => {
+  const blocked = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = blocked;
+    vi.restoreAllMocks();
+  });
+
+  const DRIVER = '99999999-0000-0000-0000-000000000701';
+  const CUST = 5150;
+  const env: SupabaseEnv = { url: 'https://db.example.test', anonKey: 'anon-key' };
+  const RACES: [number, number][] = [
+    [100, 1],
+    [100, 2],
+    [100, 3],
+    [200, 1],
+    [300, 1],
+    [400, 1],
+  ];
+  const TRACKS: Record<number, string> = {
+    100: 'Oval Speedway',
+    200: 'Road Park',
+    300: 'Dirt Bowl',
+    400: 'Nowhere Ring',
+  };
+
+  const score = ([sub, race]: [number, number]) => ({
+    subsession_id: sub,
+    race_number: race,
+    driver_id: DRIVER,
+    season_id: 's1',
+    class_id: 1,
+    team_id: null,
+    finish_position: 2,
+    classified: true,
+    dsq: false,
+    raw_position: 2,
+    shown_set: 'raw',
+    shown_position: 2,
+    shown_class_position: 2,
+    shown_finish_points: 0,
+    shown_class_points: 0,
+    shown_overall_total: 0,
+    shown_class_total: 0,
+  });
+  const rawResult = ([sub, race]: [number, number]) => ({
+    subsession_id: sub,
+    race_number: race,
+    cust_id: CUST,
+    finish_position: 2,
+    starting_position: 3,
+    adjusted_position: null,
+    incidents: 1,
+    original_incidents: 1,
+    laps_complete: 10,
+    laps_led: 0,
+    car_name: 'Car',
+    interval_ten_thousandths: 1000,
+  });
+  const rounds = Object.entries(TRACKS).map(([sub, track_name], i) => ({
+    subsession_id: Number(sub),
+    season_id: 's1',
+    start_time: `2026-0${i + 1}-01T00:00:00Z`,
+    track_name,
+    season_label: null,
+    round_number: i + 1,
+    format: null,
+    strength_of_field: null,
+    num_drivers: null,
+  }));
+  const circuits = [
+    { id: 'c-oval', name: 'Oval Speedway', logo_url: null, location: null },
+    { id: 'c-road', name: 'Road Park', logo_url: null, location: null },
+    { id: 'c-dirt', name: 'Dirt Bowl', logo_url: null, location: null },
+  ];
+  const layout = (id: string, circuit_id: string, category: string | null) => ({
+    id,
+    circuit_id,
+    name: 'Full',
+    length_km: 2,
+    lap_record_seconds: null,
+    lap_record_holder: null,
+    lap_record_date: null,
+    image_url: null,
+    corners: 4,
+    category,
+  });
+  const layouts = [
+    layout('l-oval', 'c-oval', 'oval'),
+    layout('l-road', 'c-road', null),
+    layout('l-dirt', 'c-dirt', 'dirt'),
+  ];
+  const wetRows = [
+    {
+      subsession_id: 100,
+      linked: { race1_wet_affected: false, race2_wet_affected: true, race3_wet_affected: false },
+      pinned: [],
+    },
+  ];
+
+  interface Call {
+    table: string;
+    select: string;
+  }
+  const isWetCall = (c: Call) => c.table === 'curated_rounds' && c.select === ROUND_WET_FLAGS_SELECT;
+
+  function body(table: string, select: string): unknown {
+    if (table === 'race_score_results_public') return RACES.map(score);
+    if (table === 'curated_race_results_shown') return RACES.map(rawResult);
+    if (table === 'curated_rounds' && select === ROUND_WET_FLAGS_SELECT) return wetRows;
+    if (table === 'curated_rounds' && select === 'subsession_id,layout')
+      return Object.keys(TRACKS).map((s) => ({ subsession_id: Number(s), layout: null }));
+    if (table === 'curated_rounds') return rounds;
+    if (table === 'circuits') return circuits;
+    if (table === 'circuit_layouts_shown') return layouts;
+    return [];
+  }
+
+  /** Records each call; `wetStatus` answers the wet call with that status, `hold` delays the batch. */
+  function stubFetch(opts: { wetStatus?: number; hold?: Promise<void> } = {}): Call[] {
+    const calls: Call[] = [];
+    globalThis.fetch = (async (input: string) => {
+      const url = new URL(String(input));
+      const path = decodeURIComponent(url.pathname.split('/rest/v1/')[1] + url.search);
+      const table = path.split('?')[0];
+      const select = url.searchParams.get('select') ?? '';
+      const call = { table, select };
+      calls.push(call);
+      if (opts.hold && table !== 'race_score_results_public') await opts.hold;
+      if (isWetCall(call) && opts.wetStatus && opts.wetStatus >= 400)
+        return new Response('upstream failure', { status: opts.wetStatus });
+      return new Response(JSON.stringify(body(table, select)), { status: 200 });
+    }) as unknown as typeof fetch;
+    return calls;
+  }
+
+  const bySubRace = (rows: DriverRaceHistoryRow[]) =>
+    Object.fromEntries(rows.map((r) => [`${r.subsessionId}:${r.raceNumber}`, r]));
+
+  it('keeps a valid layout category and drops a null, unknown or unresolved one (BR1.7)', async () => {
+    stubFetch();
+    const rows = bySubRace(await getDriverRaceHistory(env, DRIVER, CUST, { wetFlags: true }));
+    expect(rows['100:1'].layoutCategory).toBe('oval');
+    expect(rows['200:1'].layoutCategory).toBeNull();
+    expect(rows['300:1'].layoutCategory).toBeNull();
+    expect(rows['400:1'].layoutCategory).toBeNull();
+  });
+
+  it('marks only the race whose own flag is set, and a round with no event Dry (BR1.2, BR1.3)', async () => {
+    const calls = stubFetch();
+    const rows = bySubRace(await getDriverRaceHistory(env, DRIVER, CUST, { wetFlags: true }));
+    expect([rows['100:1'], rows['100:2'], rows['100:3']].map((r) => r.wetAffected)).toEqual([
+      false,
+      true,
+      false,
+    ]);
+    expect(rows['200:1'].wetAffected).toBe(false);
+    expect(calls.filter(isWetCall)).toHaveLength(1);
+  });
+
+  it('gives null wetAffected on a failed wet read, logs once without a name, and keeps the rest (BR1.5)', async () => {
+    stubFetch();
+    const good = await getDriverRaceHistory(env, DRIVER, CUST, { wetFlags: true });
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    stubFetch({ wetStatus: 500 });
+    const failed = await getDriverRaceHistory(env, DRIVER, CUST, { wetFlags: true });
+    expect(failed.every((r) => r.wetAffected === null)).toBe(true);
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(
+      String(error.mock.calls[0][0]).startsWith('Failed to fetch wet flags for driver race history'),
+    ).toBe(true);
+    expect(JSON.stringify(error.mock.calls)).not.toContain(DRIVER);
+    expect(failed.map(({ wetAffected: _w, ...rest }) => rest)).toEqual(
+      good.map(({ wetAffected: _w, ...rest }) => rest),
+    );
+  });
+
+  it('makes no wet call without the option, as the champions page calls it (BR1.13; NFR1.4)', async () => {
+    const without = stubFetch();
+    const rows = await getDriverRaceHistory(env, DRIVER, CUST);
+    expect(without.filter(isWetCall)).toHaveLength(0);
+    expect(rows.every((r) => r.wetAffected === null)).toBe(true);
+    const withOption = stubFetch();
+    await getDriverRaceHistory(env, DRIVER, CUST, { wetFlags: true });
+    expect(without.length).toBe(withOption.length - 1);
+  });
+
+  it('makes no wet call for a driver with no races', async () => {
+    const calls: Call[] = [];
+    globalThis.fetch = (async (input: string) => {
+      const url = new URL(String(input));
+      calls.push({ table: url.pathname.split('/rest/v1/')[1], select: url.searchParams.get('select') ?? '' });
+      return new Response('[]', { status: 200 });
+    }) as unknown as typeof fetch;
+    expect(await getDriverRaceHistory(env, DRIVER, CUST, { wetFlags: true })).toEqual([]);
+    expect(calls.filter(isWetCall)).toHaveLength(0);
+    expect(calls.map((c) => c.table)).toEqual(['race_score_results_public']);
+  });
+
+  it('sends the wet read alongside the batch, not after it (NFR1.2)', async () => {
+    let release: () => void = () => undefined;
+    const hold = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let heldResolved = false;
+    void hold.then(() => {
+      heldResolved = true;
+    });
+    const calls = stubFetch({ hold });
+    const history = getDriverRaceHistory(env, DRIVER, CUST, { wetFlags: true });
+    try {
+      await vi.waitFor(() => expect(calls.some(isWetCall)).toBe(true));
+      expect(heldResolved).toBe(false);
+      // The rest of the batch is in flight at the same time.
+      expect(calls.some((c) => c.table === 'curated_race_results_shown')).toBe(true);
+    } finally {
+      release();
+    }
+    const rows = await history;
+    expect(rows).toHaveLength(RACES.length);
   });
 });

@@ -1,7 +1,36 @@
 import { restGetAll, type SupabaseEnv } from '../db/client';
 import type { Circuit, CircuitLayout } from '../db/circuits';
+import { getStandingsExcludedRoundIds } from '../db/rounds';
+import embedReads from '../embedReads.json';
+import { LEAGUE_TIME_ZONE } from '../timezone';
 import { driversSelect, type RoundSummary, type DriverBasic } from './rows';
 import { computeDisplayRoundNumbers } from './rounds';
+import { excludedRoundIds, toEligibilityRound, type RoundEventEmbed } from './roundEligibility';
+
+// The CI embed check (check-view-embeds.mjs) sends this same string, so a wrong FK hint fails CI.
+export const PAST_RESULTS_ROUND_EVENTS_SELECT: string = embedReads.pastResultsRoundEvents.select;
+
+/**
+ * The test and exhibition rounds among `subsessionIds` (FR6.4.1): override flags or the event category, either
+ * is enough. A failed read rejects so the page shows its error state rather than an unfiltered list.
+ */
+export async function getLayoutExcludedRoundIds(
+  env: SupabaseEnv,
+  subsessionIds: readonly number[],
+): Promise<Set<number>> {
+  if (subsessionIds.length === 0) return new Set<number>();
+  const [rows, overrideIds] = await Promise.all([
+    restGetAll<{ subsession_id: number } & RoundEventEmbed>(
+      env,
+      `curated_rounds?select=${encodeURIComponent(PAST_RESULTS_ROUND_EVENTS_SELECT)}&subsession_id=in.(${subsessionIds.join(',')})&order=subsession_id.asc`,
+    ),
+    getStandingsExcludedRoundIds(env),
+  ]);
+  const byId = new Map(rows.map((r) => [r.subsession_id, r]));
+  // One pass over the input ids, so a round missing from the response still meets its override flags.
+  const rounds = subsessionIds.map((id) => toEligibilityRound(byId.get(id) ?? { subsession_id: id }));
+  return excludedRoundIds(rounds, overrideIds);
+}
 
 // iRacing prefixes a superseded track version with "[Retired] ", and unlike "[Legacy]" tracks those never get
 // their own circuits row. Stripping the tag resolves them to the plain-named circuit; otherwise their corners
@@ -157,7 +186,7 @@ export interface ClassHighlight {
 }
 
 export interface LayoutHighlights {
-  /** classId -> that class's race-1 winners across every round in `rounds`, newest first. A round with no scored rows for a given class (it didn't run that class that weekend) simply contributes no entry for that class — never a placeholder gap. */
+  /** classId -> that class's race-1 winners (every race's with `allRaces`) across every round in `rounds`, newest first, Race 3, 2, 1 inside a round. A round with no scored rows for a given class (it didn't run that class that weekend) simply contributes no entry for that class — never a placeholder gap. */
   winnersByClass: Map<number, ClassHighlight[]>;
   /** Same shape, for each class's pole-sitter. */
   polesByClass: Map<number, ClassHighlight[]>;
@@ -187,7 +216,8 @@ export function layoutHighlightGroups(
   for (const c of classes) {
     const winners = h.winnersByClass.get(c.id) ?? [];
     const poles = h.polesByClass.get(c.id) ?? [];
-    if (winners.length > 0 || poles.length > 0) groups.push({ key: String(c.id), label: c.name, winners, poles });
+    if (winners.length > 0 || poles.length > 0)
+      groups.push({ key: String(c.id), label: c.name, winners, poles });
   }
   return groups;
 }
@@ -317,9 +347,11 @@ export function buildLayoutHighlights(
     polesByClass.get(classId)!.push({ round, driver, raceNumber: 1, raceCount: 1 });
   }
 
-  // Newest round first; within a round, race 1 before race 2 before race 3.
+  // Newest round first, the higher subsession id on a tie, then Race 3, 2, 1 inside a round (BR8.2).
   const byRoundDesc = (a: ClassHighlight, b: ClassHighlight) =>
-    b.round.startTime.localeCompare(a.round.startTime) || a.raceNumber - b.raceNumber;
+    b.round.startTime.localeCompare(a.round.startTime) ||
+    b.round.subsessionId - a.round.subsessionId ||
+    b.raceNumber - a.raceNumber;
   for (const list of winnersByClass.values()) list.sort(byRoundDesc);
   for (const list of polesByClass.values()) list.sort(byRoundDesc);
 
@@ -347,6 +379,55 @@ export function buildLayoutHighlights(
   overallPoles.sort(byRoundDesc);
 
   return { winnersByClass, polesByClass, overallWinners, overallPoles };
+}
+
+/**
+ * The highlights without the rounds in `excluded` (test and exhibition rounds, BR8.5), as a new object. One
+ * set lookup per entry, so the cost grows with the entries and never with the excluded set.
+ */
+export function withoutExcludedRounds(h: LayoutHighlights, excluded: ReadonlySet<number>): LayoutHighlights {
+  const keep = (entry: ClassHighlight) => !excluded.has(entry.round.subsessionId);
+  const winnersByClass = new Map<number, ClassHighlight[]>();
+  for (const [classId, list] of h.winnersByClass) winnersByClass.set(classId, list.filter(keep));
+  const polesByClass = new Map<number, ClassHighlight[]>();
+  for (const [classId, list] of h.polesByClass) polesByClass.set(classId, list.filter(keep));
+  return {
+    winnersByClass,
+    polesByClass,
+    overallWinners: h.overallWinners.filter(keep),
+    overallPoles: h.overallPoles.filter(keep),
+  };
+}
+
+/** Rows (past rounds or incidents) without those of an excluded round, order kept. */
+export function withoutExcludedRoundRows<T extends { subsessionId: number }>(
+  rows: readonly T[],
+  excluded: ReadonlySet<number>,
+): T[] {
+  return rows.filter((row) => !excluded.has(row.subsessionId));
+}
+
+const PAST_RESULT_DATE_OPTIONS = { month: 'short', day: '2-digit', year: 'numeric' } as const;
+const leagueDateFormat = new Intl.DateTimeFormat('en-US', {
+  timeZone: LEAGUE_TIME_ZONE,
+  ...PAST_RESULT_DATE_OPTIONS,
+});
+const utcDateFormat = new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', ...PAST_RESULT_DATE_OPTIONS });
+
+/**
+ * "Nov 03, 2026" on the league's calendar day (BR8.1). A bare YYYY-MM-DD is already a calendar day, so it is
+ * read at UTC noon and never shifts; the em dash stands in for a missing or bad date, as the pages did.
+ */
+export function formatPastResultDate(dateInput: string | null): string {
+  if (!dateInput) return '—';
+  const dayOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateInput);
+  if (dayOnly) {
+    const [, y, m, d] = dayOnly;
+    return utcDateFormat.format(new Date(Date.UTC(Number(y), Number(m) - 1, Number(d), 12)));
+  }
+  const date = new Date(dateInput);
+  if (Number.isNaN(date.getTime())) return '—';
+  return leagueDateFormat.format(date);
 }
 
 /** The lowest shown position across every class per round (or per race), classified and not DSQ only. */

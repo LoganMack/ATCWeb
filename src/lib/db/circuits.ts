@@ -1,6 +1,7 @@
 import { restDelete, restGet, restPatch, restPost, type SupabaseEnv } from './client';
 import { memoized } from '../requestMemo';
 import { HIDDEN_DRIVER_NAME } from '../privacy';
+import { isStoredLogoColour, type HexColour, type LayoutCategory } from '../circuitCategory';
 
 // ---------------------------------------------------------------------------
 // CALENDAR — circuits + events
@@ -41,11 +42,12 @@ export async function getCircuitCoordinates(
   }
 }
 
-export type LogoBackground = 'light' | 'dark';
+/** Light, Dark, or a custom lower-case `#rrggbb` plate set on the circuit editor's Logo Background. */
+export type LogoBackground = 'light' | 'dark' | HexColour;
 
 /**
- * Per-circuit plate behind the track logo (0103), for logos that vanish in one theme. Keyed by circuit id;
- * separate and failure-tolerant like getCircuitCoordinates.
+ * Per-circuit plate behind the track logo, for logos that vanish in one theme. Keyed by circuit id; separate
+ * and failure-tolerant like getCircuitCoordinates. A value of any other shape is skipped, so it draws no plate.
  */
 export async function getCircuitLogoBackgrounds(env: SupabaseEnv): Promise<Record<string, LogoBackground>> {
   try {
@@ -55,21 +57,25 @@ export async function getCircuitLogoBackgrounds(env: SupabaseEnv): Promise<Recor
     );
     const out: Record<string, LogoBackground> = {};
     for (const r of rows) {
-      if (r.logo_background === 'light' || r.logo_background === 'dark') out[r.id] = r.logo_background;
+      const bg = r.logo_background;
+      if (bg === 'light' || bg === 'dark' || isStoredLogoColour(bg)) out[r.id] = bg;
     }
     return out;
   } catch (err) {
-    console.error(
-      'Failed to load circuit logo backgrounds (is 0103_circuit_logo_background.sql applied?):',
-      err,
-    );
+    console.error('Failed to load circuit logo backgrounds:', err);
     return {};
   }
 }
 
-/** Attributes to spread onto a track-logo <img>: global.css draws the chosen plate behind it (see `data-logo-bg`). Empty when no plate is set. */
+/**
+ * Attributes to spread onto a track-logo <img>: global.css draws the chosen plate behind it (see
+ * `data-logo-bg`). A custom colour goes through `--logo-bg` only after the strict stored-colour check, so
+ * nothing else can reach the inline style (it relies on the CSP setting no style-src). Empty when no plate.
+ */
 export function logoBgAttrs(bg: LogoBackground | null | undefined): Record<string, string> {
-  return bg ? { 'data-logo-bg': bg } : {};
+  if (bg === 'light' || bg === 'dark') return { 'data-logo-bg': bg };
+  if (isStoredLogoColour(bg)) return { 'data-logo-bg': 'custom', style: `--logo-bg:${bg}` };
+  return {};
 }
 
 export async function getCircuitById(env: SupabaseEnv, id: string) {
@@ -83,7 +89,11 @@ export async function getCircuitById(env: SupabaseEnv, id: string) {
 export function createCircuit(
   env: SupabaseEnv,
   accessToken: string,
-  data: Partial<Circuit> & { latitude?: number | null; longitude?: number | null },
+  data: Partial<Circuit> & {
+    latitude?: number | null;
+    longitude?: number | null;
+    logo_background?: LogoBackground | null;
+  },
 ) {
   return restPost<Circuit>(env, accessToken, 'circuits', data);
 }
@@ -123,10 +133,12 @@ export interface CircuitLayout {
    * src/lib/results/extendedStats.ts); null until filled in.
    */
   corners: number | null;
+  /** Track type (20261123120000); null until an admin sets it. Labels in src/lib/circuitCategory.ts. */
+  category: LayoutCategory | null;
 }
 
 const CIRCUIT_LAYOUT_SELECT =
-  'id,circuit_id,name,length_km,lap_record_seconds,lap_record_holder,lap_record_date,image_url,corners';
+  'id,circuit_id,name,length_km,lap_record_seconds,lap_record_holder,lap_record_date,image_url,corners,category';
 
 /** "1:42.512" from a raw seconds count (e.g. 102.512) — minutes are shown with no leading zero (per site-wide convention: no leading zeroes on lap records/times), while seconds/milliseconds keep their own fixed-width zero-padding since those are always exactly 2 and 3 digits within a minute. */
 export function formatLapTime(seconds: number | null): string {
@@ -221,6 +233,10 @@ export function formatDate(dateInput: string | null): string {
   return date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 }
 
+// One formatter for every call: toLocaleDateString builds a new one each time, which made a page's incident
+// popup data cost about 0.05 ms per row (past-results NFR1.7).
+const shortDateFormat = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
 /** Same date-parsing as formatDate, but an abbreviated month for tight columns (the roster's Signed Up column: "Sep 13, 2025" instead of "September 13, 2025"). Kept as its own function rather than a formatDate param so every existing formatDate call site is untouched. */
 export function formatDateShort(dateInput: string | null): string {
   if (!dateInput) return '—';
@@ -228,7 +244,9 @@ export function formatDateShort(dateInput: string | null): string {
   const date = dateOnlyMatch
     ? new Date(Number(dateOnlyMatch[1]), Number(dateOnlyMatch[2]) - 1, Number(dateOnlyMatch[3]))
     : new Date(dateInput);
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  // Same text toLocaleDateString gave for a bad date, where format() would throw.
+  if (Number.isNaN(date.getTime())) return 'Invalid Date';
+  return shortDateFormat.format(date);
 }
 
 export function getCircuitLayouts(env: SupabaseEnv, circuitId: string) {
@@ -283,16 +301,26 @@ export async function getLayoutImages(
   return out;
 }
 
-export function createCircuitLayout(env: SupabaseEnv, accessToken: string, data: Partial<CircuitLayout>) {
+/** The only columns the app writes on a layout: the lap record columns are never written (circuit-editor BR1.17). */
+export type LayoutWrite = Partial<
+  Pick<CircuitLayout, 'circuit_id' | 'name' | 'length_km' | 'corners' | 'category' | 'image_url'>
+>;
+
+export function createCircuitLayout(
+  env: SupabaseEnv,
+  accessToken: string,
+  data: LayoutWrite & { circuit_id: string },
+) {
   return restPost<CircuitLayout>(env, accessToken, 'circuit_layouts', data);
 }
 
+/** Resolves to undefined when the PATCH matched no row (the layout was deleted elsewhere). */
 export function updateCircuitLayout(
   env: SupabaseEnv,
   accessToken: string,
   id: string,
-  data: Partial<CircuitLayout>,
-) {
+  data: LayoutWrite,
+): Promise<CircuitLayout | undefined> {
   return restPatch<CircuitLayout>(env, accessToken, `circuit_layouts?id=eq.${encodeURIComponent(id)}`, data);
 }
 

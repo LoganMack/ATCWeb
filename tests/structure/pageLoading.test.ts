@@ -173,6 +173,8 @@ const MAIN_FRAGMENTS: Record<string, string[]> = {
   'admin/fragment.astro': [],
   // Compare (FR4): the slot picks a-d stay in the browser; view has one value and is not read.
   'advanced-stats/fragment.astro': ['class', 'season'],
+  // Lineup Changes (lineup-changes BR1.3): the shell always passes the resolved season.
+  'advanced-stats/lineups/fragment.astro': ['season'],
   // Points Contenders (points-calc FR2): the reader's Scenario Editor edits stay in the browser.
   'advanced-stats/points/fragment.astro': ['championship', 'season'],
   // Series iRating (points-calc FR7).

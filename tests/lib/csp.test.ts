@@ -29,6 +29,14 @@ describe('contentSecurityPolicy and clips', () => {
     expect(policy).not.toMatch(/unsafe-inline|unsafe-eval/);
   });
 
+  // The custom logo plate is an inline style (logoBgAttrs, circuit-editor BR1.10): a style source would block it.
+  it('sets no style-src, style-src-attr or default-src (circuit-editor NFR3.4)', () => {
+    const names = directives(contentSecurityPolicy(newCspNonce()));
+    for (const name of ['style-src', 'style-src-attr', 'default-src']) {
+      expect(names).not.toContain(name);
+    }
+  });
+
   it('leaves Streamable embeds allowed: no directive names a frame source (incident-email-badges FR1.4)', () => {
     const policy = contentSecurityPolicy('abc');
     expect(policy).not.toMatch(/(?:^|;)\s*(?:frame-src|child-src|default-src)\b/);

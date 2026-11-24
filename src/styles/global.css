@@ -622,16 +622,22 @@ th[data-sort-key][data-sort-dir='desc']::after {
   );
 }
 
-/* ---- Primary track logos (`img[data-logo-bg]`). An admin can pick a light
-   or dark plate per circuit (Logo background on /admin/circuits/<id>) for a
-   logo that would otherwise vanish into the current theme. The same plate
-   shows in both themes, since it's a deliberate choice for that logo. ---- */
+/* ---- Primary track logos (`img[data-logo-bg]`). An admin can pick a Light,
+   Dark or custom colour plate per circuit (Logo Background on
+   /admin/circuits/<id>) for a logo that would otherwise vanish into the
+   current theme. The same plate shows in both themes, since it's a deliberate
+   choice for that logo. A custom colour arrives as `--logo-bg`, set only by
+   logoBgAttrs after a strict #rrggbb check. ---- */
 img[data-logo-bg='light'] {
   background-color: #fff;
   padding: 2px;
 }
 img[data-logo-bg='dark'] {
   background-color: #111114;
+  padding: 2px;
+}
+img[data-logo-bg='custom'] {
+  background-color: var(--logo-bg);
   padding: 2px;
 }
 

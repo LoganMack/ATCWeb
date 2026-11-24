@@ -105,11 +105,21 @@ describe('shapeRatingHistory', () => {
         historyRow({ season_name: null, season_number: null }),
       ]),
     ).toEqual([
-      { d: '2026-04-01', s: 'ATC18', t: 'Spa', r: 0, p: 3, f: 12, v: 1416 },
-      { d: '2026-04-01', s: 'ATC18', t: 'Spa', r: 2, p: 3, f: 12, v: 1450 },
-      { d: '2026-04-01', s: 'Season 17', t: '', r: 0, p: 3, f: 12, v: 1416 },
-      { d: '2026-04-01', s: '', t: 'Spa', r: 0, p: 3, f: 12, v: 1416 },
+      { d: '2026-04-01', s: 'ATC18', t: 'Spa', r: 0, p: 3, f: 12, v: 1416, i: 4001, n: 1 },
+      { d: '2026-04-01', s: 'ATC18', t: 'Spa', r: 2, p: 3, f: 12, v: 1450, i: 4001, n: 2 },
+      { d: '2026-04-01', s: 'Season 17', t: '', r: 0, p: 3, f: 12, v: 1416, i: 4001, n: 1 },
+      { d: '2026-04-01', s: '', t: 'Spa', r: 0, p: 3, f: 12, v: 1416, i: 4001, n: 1 },
     ]);
+  });
+
+  it('sets i to the round’s subsession id and n to its race count, 1 when the count is missing (BR1.14)', () => {
+    const [three, unknown] = shapeRatingHistory([
+      historyRow({ subsession_id: 301, race_number: 3, round_races: 3 }),
+      historyRow({ subsession_id: 302, race_number: 1, round_races: null }),
+    ]);
+    expect(three).toMatchObject({ i: 301, n: 3, r: 3 });
+    expect(unknown).toMatchObject({ i: 302, n: 1, r: 0 });
+    expect(Object.keys(three).sort()).toEqual(['d', 'f', 'i', 'n', 'p', 'r', 's', 't', 'v']);
   });
 });
 
@@ -150,7 +160,10 @@ describe('getSeriesRatingHistory', () => {
     expect(select).toContain('rating_after');
     for (const secret of ['driver_id', 'name', 'starting_irating', 'rating_before'])
       expect(select).not.toContain(secret);
-    expect(steps).toEqual([{ d: '2026-04-01', s: 'ATC18', t: 'Spa', r: 0, p: 3, f: 12, v: 1416 }]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(steps).toEqual([
+      { d: '2026-04-01', s: 'ATC18', t: 'Spa', r: 0, p: 3, f: 12, v: 1416, i: 4001, n: 1 },
+    ]);
   });
 
   it('throws when the read fails, so the route can answer with an error', async () => {

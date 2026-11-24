@@ -1,0 +1,20 @@
+{
+  "raceWetFlags": {
+    "path": "curated_rounds",
+    "select": "subsession_id,linked:events!curated_rounds_event_id_fkey(race1_wet_affected,race2_wet_affected,race3_wet_affected),pinned:events!events_subsession_id_fkey(id,race1_wet_affected,race2_wet_affected,race3_wet_affected)",
+    "embeds": ["linked", "pinned"],
+    "callers": ["anon", "admin"]
+  },
+  "ratingTimelineRounds": {
+    "path": "curated_rounds",
+    "select": "subsession_id,season:seasons!curated_rounds_season_id_fkey(name),event:events!curated_rounds_event_id_fkey(category),pinned_events:events!events_subsession_id_fkey(category)",
+    "embeds": ["season", "event", "pinned_events"],
+    "callers": ["anon", "admin"]
+  },
+  "pastResultsRoundEvents": {
+    "path": "curated_rounds",
+    "select": "subsession_id,event:events!curated_rounds_event_id_fkey(category),pinned_events:events!events_subsession_id_fkey(category)",
+    "embeds": ["event", "pinned_events"],
+    "callers": ["anon", "admin"]
+  }
+}

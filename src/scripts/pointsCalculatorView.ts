@@ -3,7 +3,7 @@
  * Editor shows, built as elements from the view models in pointsCalculatorModel.ts. Names are set as text,
  * never as HTML. Colours come only from the theme tokens, so both themes work; the bars animate only when the
  * reader allows motion. Cell events are wired by src/scripts/pointsCalculator.ts through the data attributes
- * set here; the bars' hover tooltip is wired here.
+ * set here; the bars' tooltip (hover, and keyboard focus on each best-possible part) is wired here.
  */
 import type { CalculatorSeason } from '../lib/calculator/types';
 import {
@@ -164,25 +164,32 @@ export function matrixElement(season: CalculatorSeason, rows: MatrixRow[]): HTML
 // --- Points Contenders ------------------------------------------------------------------------------------
 
 /**
- * Every row and the floor overlay share these columns, so each bar track has the same width and position and
- * the Leader’s Floor is one line through all of them. On a phone the right column wraps under the bar.
+ * Every row and the floor overlay share these columns (Pos, name, Pts, status, bar), so each bar track has the
+ * same width and position and the Leader’s Floor is one line through all of them. On a phone Pts and the status
+ * sit on the name line and the bar wraps under it.
  */
-const ROW_GRID = 'grid-cols-[2rem_minmax(0,1fr)] md:grid-cols-[2rem_11rem_minmax(0,1fr)_300px]';
+const ROW_GRID = 'grid-cols-[2rem_minmax(0,1fr)] md:grid-cols-[2rem_11rem_3.5rem_11rem_minmax(0,1fr)]';
 
 export const floorLabel = (floor: number) => `Leader’s Floor: ${floor}`;
 export const segmentLabel = (s: { label: string; points: number }) =>
   `${s.label}: ${s.points} ${s.points === 1 ? 'pt' : 'pts'}`;
 
+/**
+ * The track itself stays in the accessibility tree so the best-possible part can take focus and name its value;
+ * the segments and the phone floor mark are decorative there (the row's sentence says them). The segments let
+ * the pointer through their empty area, so hovering past the current total reaches the best-possible part.
+ */
 function barTrack(bar: BarView, floorPct: number | null, floor: number | null): HTMLElement {
   const segments = el('span', {
-    class: 'absolute inset-0 flex overflow-hidden rounded-md',
+    class: 'pointer-events-none absolute inset-0 flex overflow-hidden rounded-md',
+    'aria-hidden': 'true',
     'data-bar-segments': '',
   });
   for (const s of bar.segments) {
     segments.append(
       el('span', {
         class:
-          'h-full shrink-0 border-r border-white/20 bg-brand-primary text-fixed-white last:rounded-r-md last:border-r-0 motion-safe:transition-[width] motion-safe:duration-150',
+          'pointer-events-auto h-full shrink-0 border-r border-white/20 bg-brand-primary text-fixed-white last:rounded-r-md last:border-r-0 motion-safe:transition-[width] motion-safe:duration-150',
         style: `width:${s.pct.toFixed(2)}%`,
         'data-tip': segmentLabel(s),
         'data-bar-segment': '',
@@ -193,21 +200,26 @@ function barTrack(bar: BarView, floorPct: number | null, floor: number | null): 
     'span',
     {
       class: 'relative col-start-2 h-4 rounded-md bg-white/5 md:col-start-auto',
-      'aria-hidden': 'true',
       'data-bar-track': '',
     },
     el('span', {
       class:
         'absolute inset-y-0 left-0 rounded-md bg-brand-primary/20 motion-safe:transition-[width] motion-safe:duration-150',
       style: `width:${bar.bestPct.toFixed(2)}%`,
+      tabindex: '0',
+      role: 'img',
+      'aria-label': bar.bestLabel,
+      'data-tip': bar.bestLabel,
+      'data-bar-best': '',
     }),
     segments,
-    // Phones only: the right column wraps between rows there, so each bar carries its own floor mark.
+    // Phones only: the bars wrap under the name line there, so each bar carries its own floor mark.
     floorPct === null || floor === null
       ? null
       : el('span', {
           class: 'absolute -inset-y-1 w-0.5 bg-brand-gold md:hidden',
           style: `left:${floorPct.toFixed(2)}%`,
+          'aria-hidden': 'true',
           'data-tip': floorLabel(floor),
         }),
   );
@@ -223,19 +235,19 @@ function barRow(bar: BarView, floorPct: number | null, floor: number | null): HT
     },
     el('span', { class: 'sr-only', 'data-bar-text': '' }, bar.ariaLabel),
     el('span', { class: 'text-right font-display text-xl', 'aria-hidden': 'true' }, String(bar.position)),
-    el('span', { class: 'truncate', 'aria-hidden': 'true' }, bar.name),
-    barTrack(bar, floorPct, floor),
+    // One line on a phone; at desktop md:contents makes name, Pts and status their own grid columns.
     el(
       'span',
-      {
-        class:
-          'col-start-2 grid grid-cols-[7.5rem_minmax(0,1fr)_3.5rem] items-center gap-2 text-sm tabular-nums md:col-start-auto',
-        'aria-hidden': 'true',
-      },
+      { class: 'flex min-w-0 items-center gap-2 md:contents', 'aria-hidden': 'true' },
+      el('span', { class: 'min-w-0 flex-1 truncate' }, bar.name),
+      el(
+        'span',
+        { class: 'text-right text-sm font-semibold tabular-nums', 'data-bar-points': '' },
+        bar.points,
+      ),
       chip(bar.chip.label, bar.chip.tone),
-      el('span', { class: 'whitespace-nowrap', 'data-bar-numbers': '' }, bar.numbers),
-      el('span', { class: 'text-right font-semibold', 'data-bar-needs': '' }, bar.needs),
     ),
+    barTrack(bar, floorPct, floor),
   );
 }
 
@@ -247,6 +259,9 @@ function floorOverlay(floorPct: number, floor: number): HTMLElement {
       class: `pointer-events-none absolute inset-0 hidden grid-rows-1 gap-x-3 md:grid ${ROW_GRID}`,
       'data-floor-overlay': '',
     },
+    // Spacers for Pos, name, Pts and status, so the line lands in the bar column.
+    el('span'),
+    el('span'),
     el('span'),
     el('span'),
     el(
@@ -265,13 +280,15 @@ function floorOverlay(floorPct: number, floor: number): HTMLElement {
         el('span', { class: 'absolute inset-y-0 left-1/2 w-0.5 -translate-x-1/2 bg-brand-gold' }),
       ),
     ),
-    el('span'),
   );
 }
 
-/** One tooltip for every data-tip in the bars: a segment's race and points, or the floor's value. */
+/**
+ * One tooltip for every data-tip in the bars: a segment's race and points, the floor's value, or the best
+ * possible. Keyboard focus shows it too, so the focusable best-possible part works without a pointer.
+ */
 function bindTooltip(wrap: HTMLElement, tip: HTMLElement): void {
-  wrap.addEventListener('pointerover', (e) => {
+  const show = (e: Event) => {
     const target = (e.target as HTMLElement).closest?.<HTMLElement>('[data-tip]');
     if (!target || !wrap.contains(target)) return;
     const box = wrap.getBoundingClientRect();
@@ -282,11 +299,14 @@ function bindTooltip(wrap: HTMLElement, tip: HTMLElement): void {
       `left:${(rect.left + rect.width / 2 - box.left).toFixed(0)}px;top:${(rect.top - box.top - 30).toFixed(0)}px;transform:translateX(-50%)`,
     );
     tip.classList.remove('hidden');
-  });
+  };
+  wrap.addEventListener('pointerover', show);
+  wrap.addEventListener('focusin', show);
   wrap.addEventListener('pointerout', (e) => {
     const next = (e as PointerEvent).relatedTarget as HTMLElement | null;
     if (!next?.closest?.('[data-tip]')) tip.classList.add('hidden');
   });
+  wrap.addEventListener('focusout', () => tip.classList.add('hidden'));
 }
 
 export function contendersSection(state: CalcState, snapshot: Snapshot): HTMLElement {

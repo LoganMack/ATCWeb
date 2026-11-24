@@ -6,7 +6,7 @@
  */
 let circuitLayoutDetailInitialized = false;
 
-async function loadLayoutDetail(row: HTMLElement) {
+export async function loadLayoutDetail(row: HTMLElement) {
   const url = row.dataset.layoutDetailUrl;
   const detail = row.nextElementSibling as HTMLElement | null;
   const body = detail?.querySelector<HTMLElement>('[data-layout-detail-body]');
@@ -17,6 +17,8 @@ async function loadLayoutDetail(row: HTMLElement) {
     const res = await fetch(url);
     if (!res.ok) throw new Error(`Request failed: ${res.status}`);
     body.innerHTML = await res.text();
+    // Lets the page-load binders (the incidents table's sorting) see the new markup, as fragmentLoader.ts does.
+    document.dispatchEvent(new Event('astro:page-load'));
   } catch (err) {
     console.error('Failed to load circuit layout detail:', err);
     body.innerHTML = '<p class="text-white/40">Couldn’t load this layout’s history right now.</p>';

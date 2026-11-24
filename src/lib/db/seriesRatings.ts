@@ -3,11 +3,15 @@
  * series_ratings_shown, and one driver's every rated race from series_rating_history_shown
  * (20261121120000_series_irating.sql). The database keeps the ratings; this only reads stored values, so a page
  * view does no rating maths (NFR1), the list gets at most 20 trend values per driver (NFR2) and a driver's full
- * history is read only when their row is opened. Hidden drivers arrive already masked: "Hidden Driver", no
- * driver id, an opaque key (FR7.3, NFR4).
+ * history is read only when their row is opened. Hidden drivers arrive masked: "Hidden Driver", no driver id,
+ * an opaque key (FR7.3, NFR4). The shared round timeline gives every driver's chart the same round slots.
  */
 import { restGetAll, type SupabaseEnv } from './client';
 import privacyReads from '../privacyReads.json';
+import embedReads from '../embedReads.json';
+import { getStandingsExcludedRoundIds } from './rounds';
+import { excludedRoundIds, toEligibilityRound } from '../results/roundEligibility';
+import { buildTimelineSlots, type TimelineRoundRow, type TimelineSlot } from '../rating/timeline';
 
 export const RATING_KINDS = ['overall', 'alpha', 'gamma', 'delta'] as const;
 export type RatingKind = (typeof RATING_KINDS)[number];
@@ -141,7 +145,8 @@ export interface RatingHistoryViewRow {
 /**
  * One rated race as the chart draws it, in short keys to keep the JSON small: d the round's date (YYYY-MM-DD),
  * s the season name, t the track, r the race number (0 when the round had one race), p the position used
- * (overall for Overall, class position for a class), f the field size and v the rating after the race.
+ * (overall for Overall, class position for a class), f the field size, v the rating after the race, i the
+ * round's subsession id (the timeline slot key) and n the races in the round.
  */
 export interface RatingHistoryPoint {
   d: string;
@@ -151,6 +156,10 @@ export interface RatingHistoryPoint {
   p: number;
   f: number;
   v: number;
+  /** The round's subsession id, the slot key. */
+  i: number;
+  /** Races in the round (round_races, else 1). */
+  n: number;
 }
 
 export function shapeRatingHistory(rows: readonly RatingHistoryViewRow[]): RatingHistoryPoint[] {
@@ -162,6 +171,8 @@ export function shapeRatingHistory(rows: readonly RatingHistoryViewRow[]): Ratin
     p: row.position,
     f: row.field_size,
     v: row.rating_after,
+    i: row.subsession_id,
+    n: row.round_races ?? 1,
   }));
 }
 
@@ -181,4 +192,29 @@ export async function getSeriesRatingHistory(
       '&order=race_started_at.asc,subsession_id.asc,race_number.asc',
   );
   return shapeRatingHistory(rows);
+}
+
+// --- The shared round timeline ------------------------------------------------------------------------------
+
+/**
+ * The timeline's curated_rounds select: the id, the season name and U1's event category embeds, each hinted by
+ * constraint name. The CI embed check sends this same string (embedReads.json), so a wrong FK hint fails CI.
+ */
+export const RATING_TIMELINE_SELECT: string = embedReads.ratingTimelineRounds.select;
+
+/**
+ * The slot list for the Series iRating charts: every rated round (a positive subsession id with a season) in
+ * round order, minus test and exhibition rounds. One curated_rounds read and the memoized override set, in
+ * parallel; not memoized and catches nothing, so any failed read rejects and the fragment shows its error.
+ */
+export async function getRatingTimeline(env: SupabaseEnv): Promise<TimelineSlot[]> {
+  const [rows, overrideIds] = await Promise.all([
+    restGetAll<TimelineRoundRow>(
+      env,
+      `curated_rounds?select=${encodeURIComponent(RATING_TIMELINE_SELECT)}` +
+        '&subsession_id=gt.0&season_id=not.is.null&order=start_time.asc,subsession_id.asc',
+    ),
+    getStandingsExcludedRoundIds(env),
+  ]);
+  return buildTimelineSlots(rows, excludedRoundIds(rows.map(toEligibilityRound), overrideIds));
 }

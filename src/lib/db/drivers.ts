@@ -1,6 +1,7 @@
 import { uploadToStorage } from './assets';
 import { formatDate } from './circuits';
 import { restDelete, restGet, restPatch, restPost, writeHeaders, type SupabaseEnv } from './client';
+import privacyReads from '../privacyReads.json';
 
 // --- Drivers (admin — raw FK columns, not the embedded/joined shape) -------
 
@@ -306,6 +307,28 @@ export function deleteDriverSeasonClass(
     accessToken,
     `driver_season_classes?driver_id=eq.${encodeURIComponent(driverId)}&season_id=eq.${encodeURIComponent(seasonId)}`,
   );
+}
+
+// --- Masked names for a set of drivers (Lineup Changes, U9) --------------
+
+/** A drivers_shown row: a hidden driver's name arrives as "Hidden Driver", with its id and number kept. */
+export interface ShownDriver {
+  id: string;
+  name: string;
+  car_number: number | null;
+  is_hidden: boolean | null;
+}
+
+/**
+ * Names and the hidden flag for these drivers only, in one masked read (BR1.15); no request for no ids. The
+ * select is shared with the CI embed check (privacyReads.json).
+ */
+export function getShownDriversByIds(env: SupabaseEnv, ids: readonly string[]): Promise<ShownDriver[]> {
+  const unique = [...new Set(ids)];
+  if (unique.length === 0) return Promise.resolve([]);
+  const { path, select } = privacyReads.lineupDrivers;
+  const list = unique.map((id) => encodeURIComponent(id)).join(',');
+  return restGet<ShownDriver[]>(env, `${path}?select=${encodeURIComponent(select)}&id=in.(${list})`);
 }
 
 // --- Driver season car numbers (per-season number override, see 0044_driver_season_car_numbers.sql) -

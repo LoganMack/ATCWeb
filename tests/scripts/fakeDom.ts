@@ -262,6 +262,11 @@ export class FakeDocument {
   addEventListener(type: string, fn: Listener) {
     this.listeners.set(type, [...(this.listeners.get(type) ?? []), fn]);
   }
+  /** Runs the document's own listeners for the event's type, in order, as a page-wide event does. */
+  dispatchEvent(event: { type: string }): boolean {
+    for (const fn of this.listeners.get(event.type) ?? []) fn(event as FakeEvent);
+    return true;
+  }
   querySelector(selector: string) {
     return this.root.querySelector(selector);
   }

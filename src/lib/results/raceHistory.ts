@@ -4,6 +4,8 @@ import { getCarLogos } from '../db/assets';
 import { getSeasons, type Season } from '../db/seasons';
 import { getDriverClasses } from '../db/lookups';
 import { getCircuits, getAllCircuitLayouts, type Circuit, type CircuitLayout } from '../db/circuits';
+import { getRaceWetFlagsForSubsessions, isWetRace, type RaceWetFlags } from '../db/events';
+import { isLayoutCategory, type LayoutCategory } from '../circuitCategory';
 import {
   getCuratedRaceResultsForSubsessions,
   getTeamsBasic,
@@ -99,6 +101,10 @@ export interface DriverRaceHistoryRow {
   layoutRecordDate?: string | null;
   /** The LayoutKey this round's laps count toward (BR1.2), as a RecordKey; null when it resolves to none. */
   recordKey?: string | null;
+  /** Weather split (U7): null when the wet flags were not requested or their read failed. */
+  wetAffected: boolean | null;
+  /** Track Type split (U7): the resolved layout's category; null when uncategorised or unresolved. */
+  layoutCategory: LayoutCategory | null;
 }
 
 /**
@@ -110,6 +116,8 @@ export async function getDriverRaceHistory(
   driverId: string,
   /** The driver's iRacing customer id when the caller already read it, which saves a sequential read. */
   knownCustId?: number | null,
+  /** `wetFlags` adds the one read the profile's Weather split needs; other callers skip it. */
+  options?: { wetFlags?: boolean },
 ): Promise<DriverRaceHistoryRow[]> {
   const custId =
     knownCustId !== undefined
@@ -152,6 +160,7 @@ export async function getDriverRaceHistory(
     circuitLayouts,
     roundLayouts,
     qualifyingRowsBulk,
+    wetFlagsResult,
   ] = await Promise.all([
     getCuratedRaceResultsForSubsessions(env, subsessionIds),
     getTeamsBasic(env),
@@ -200,7 +209,19 @@ export async function getDriverRaceHistory(
       );
       return [] as CuratedQualifyingBulkRow[];
     }),
+    // A failure empties the Weather split rather than counting every race as Dry.
+    options?.wetFlags
+      ? getRaceWetFlagsForSubsessions(env, subsessionIds).catch((err) => {
+          console.error(
+            'Failed to fetch wet flags for driver race history; the Weather split will be empty:',
+            err,
+          );
+          return 'failed' as const;
+        })
+      : Promise.resolve(null),
   ]);
+  const wetFlags: Map<number, RaceWetFlags | null> | null =
+    wetFlagsResult instanceof Map ? wetFlagsResult : null;
 
   const excludedRoundIds = new Set([...exhibitionRoundIds, ...testRoundIds]);
   const rawByKey = new Map(rawResults.map((r) => [resultKey(r.subsession_id, r.race_number, r.cust_id), r]));
@@ -278,6 +299,8 @@ export async function getDriverRaceHistory(
   const layoutRecordHolderBySubsession = new Map<number, string | null>();
   const layoutRecordDateBySubsession = new Map<number, string | null>();
   const recordKeyBySubsession = new Map<number, string | null>();
+  // Track Type comes from the same resolved layout; an unknown stored value is dropped.
+  const layoutCategoryBySubsession = new Map<number, LayoutCategory | null>();
   const recordKeys = createRecordKeyResolver(circuits, circuitLayouts);
   for (const subsessionId of subsessionIds) {
     const trackName = roundBySubsession.get(subsessionId)?.track_name;
@@ -288,6 +311,8 @@ export async function getDriverRaceHistory(
     layoutRecordBySubsession.set(subsessionId, layout?.lap_record_seconds ?? null);
     layoutRecordHolderBySubsession.set(subsessionId, layout?.lap_record_holder ?? null);
     layoutRecordDateBySubsession.set(subsessionId, layout?.lap_record_date ?? null);
+    const category = layout?.category;
+    layoutCategoryBySubsession.set(subsessionId, isLayoutCategory(category) ? category : null);
     recordKeyBySubsession.set(
       subsessionId,
       trackName ? recordKeys.resolve(trackName, roundLayouts.get(subsessionId) ?? null) : null,
@@ -406,6 +431,8 @@ export async function getDriverRaceHistory(
       layoutRecordHolder: layoutRecordHolderBySubsession.get(score.subsession_id) ?? null,
       layoutRecordDate: layoutRecordDateBySubsession.get(score.subsession_id) ?? null,
       recordKey: recordKeyBySubsession.get(score.subsession_id) ?? null,
+      wetAffected: wetFlags ? isWetRace(wetFlags.get(score.subsession_id) ?? null, score.race_number) : null,
+      layoutCategory: layoutCategoryBySubsession.get(score.subsession_id) ?? null,
     });
   }
 

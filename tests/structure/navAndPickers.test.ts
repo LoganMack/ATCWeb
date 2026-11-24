@@ -23,6 +23,15 @@ const SRC = Object.fromEntries(
 );
 
 const NAV = SRC['/src/components/Nav.astro'];
+// Scripts too, for the importer check: a side-menu script must load from the nav only.
+const ALL_SRC = Object.fromEntries(
+  Object.entries(
+    import.meta.glob('/src/**/*.{astro,ts}', { query: '?raw', import: 'default', eager: true }) as Record<
+      string,
+      string
+    >,
+  ).map(([path, text]) => [path, text.replace(/\r\n/g, '\n')]),
+);
 const HISTORY_TABS = SRC['/src/components/HistoryTabs.astro'];
 const STATS_TABS = SRC['/src/components/StatsTabs.astro'];
 const ADVANCED = SRC['/src/pages/advanced-stats.astro'];
@@ -54,9 +63,10 @@ function menuOf(label: string): string[] {
   const start = linksBlock.indexOf(`label: '${label}',\n    menu: [`);
   expect(start, label).toBeGreaterThan(-1);
   const body = linksBlock.slice(start, linksBlock.indexOf('],', start));
-  return [...body.matchAll(/\{ href: '([^']+)', label: '([^']+)'(, mobile: true)? \}/g)].map(
-    (m) => `${m[1]} ${m[2]}${m[3] ? ' mobile' : ''}`,
-  );
+  // A side menu's `, submenu: NAME` is skipped here; the literal assertions below pin each constant.
+  return [
+    ...body.matchAll(/\{ href: '([^']+)', label: '([^']+)'(, mobile: true)?(?:, submenu: [A-Z_]+)? \}/g),
+  ].map((m) => `${m[1]} ${m[2]}${m[3] ? ' mobile' : ''}`);
 }
 
 describe('top navigation (BR6.1-BR6.4)', () => {
@@ -106,6 +116,118 @@ describe('top navigation (BR6.1-BR6.4)', () => {
       '/interviews Interviews mobile',
     ]);
     expect(linksBlock).not.toContain('Driver Stats');
+  });
+});
+
+describe('desktop side menus (nav-side-menus BR1.1-BR1.12, NFR4.1, NFR5.2-NFR5.4)', () => {
+  /** The desktop link row, from its `<nav class="hidden` to its closing tag. */
+  const desktop = NAV.slice(
+    NAV.indexOf('<nav class="hidden'),
+    NAV.indexOf('</nav>', NAV.indexOf('<nav class="hidden')),
+  );
+  const row = desktop.slice(desktop.indexOf('data-nav-side>') - 200, desktop.indexOf('data-nav-side-link>'));
+  const panelClass =
+    /<div\s+id=\{sideMenuId[\s\S]*?data-nav-side-panel\s+class="([^"]+)"/.exec(desktop)?.[1] ?? '';
+  const toggle = /<button\s([^>]*data-nav-side-toggle[^>]*)>/.exec(desktop)?.[1] ?? '';
+
+  it('lists Drivers and Teams under Standings, each with its side menu, parents unchanged (BR1.2, BR1.3, BR1.5)', () => {
+    expect(menuOf('Standings')).toEqual([
+      '/standings?championship=drivers Drivers',
+      '/standings?championship=teams Teams',
+    ]);
+    expect(linksBlock).toContain(
+      "{ href: '/standings?championship=drivers', label: 'Drivers', submenu: DRIVERS_SIDE_MENU }",
+    );
+    expect(linksBlock).toContain(
+      "{ href: '/standings?championship=teams', label: 'Teams', submenu: TEAMS_SIDE_MENU }",
+    );
+  });
+
+  it('gives Stats > Advanced the side menu read from the view registry (BR1.4, BR1.5)', () => {
+    expect(linksBlock).toContain(
+      "{ href: '/advanced-stats', label: 'Advanced', mobile: true, submenu: ADVANCED_SIDE_MENU }",
+    );
+    expect(linksBlock.match(/submenu: /g)).toHaveLength(3);
+    expect(NAV).toMatch(/submenu\?: readonly NavSideItem\[\]/);
+  });
+
+  it('renders a side-menu row with a named group, its own parent link and toggle (BR1.7, BR1.10)', () => {
+    expect(desktop).toContain('{link.menu?.map((item) =>');
+    expect(desktop).toContain('item.submenu ? (');
+    expect(row).toContain('class="group/side relative');
+    expect(row).toMatch(/<a href=\{item\.href\}[^>]*data-nav-side-parent>\{item\.label\}<\/a>/);
+    expect(toggle).toContain('type="button"');
+    expect(toggle).toContain('aria-expanded="false"');
+    expect(toggle).toContain('aria-controls={sideMenuId(link.label, item.label)}');
+    expect(toggle).toContain('aria-label={sideMenuToggleLabel(link.label, item.label)}');
+    expect(row).toMatch(/<svg[^>]*stroke="currentColor"[^>]*aria-hidden="true"/);
+    expect(desktop).toMatch(/role="group"\s+aria-label=\{`\$\{item\.label\} \$\{link\.label\}`\}/);
+    // An item without a side menu keeps today's plain link.
+    expect(desktop).toContain(
+      '<a href={item.href} class="block whitespace-nowrap rounded-md px-3 py-2 text-white/80 transition hover:bg-white/[0.06] hover:text-white">{item.label}</a>',
+    );
+  });
+
+  it('hides the side panel by default and shows it only through its own row (NFR5.3, NFR5.4, BR1.6, BR1.9, BR1.11)', () => {
+    const classes = panelClass.split(/\s+/);
+    expect(classes).toEqual(expect.arrayContaining(['invisible', 'opacity-0', 'duration-150']));
+    expect(classes).toContain('transition-[opacity,visibility]');
+    expect(classes).toEqual(
+      expect.arrayContaining([
+        'group-hover/side:visible',
+        'group-data-[open]/side:visible',
+        'group-data-[dismissed]/side:!invisible',
+        'group-data-[dismissed]/side:!opacity-0',
+        'group-data-[flip]/side:right-full',
+      ]),
+    );
+    // A bare group-hover would open every side menu as soon as the top dropdown opens.
+    expect(panelClass).not.toMatch(/(^|\s)group-hover:/);
+    expect(panelClass).not.toMatch(/(^|\s)group-focus-within:/);
+  });
+
+  it('reuses the dropdown panel and link classes, with no new colour and no outline-none (NFR4.1, NFR5.6)', () => {
+    const side = desktop.slice(
+      desktop.indexOf('data-nav-side-panel'),
+      desktop.indexOf('data-nav-side-link>') + 20,
+    );
+    expect(side).toContain(
+      '<div class="min-w-[11rem] rounded-[10px] border border-white/10 bg-brand-ink p-1.5 shadow-xl">',
+    );
+    expect(side).toContain(
+      'class="block whitespace-nowrap rounded-md px-3 py-2 text-white/80 transition hover:bg-white/[0.06] hover:text-white" data-nav-side-link',
+    );
+    expect(row + side).not.toContain('outline-none');
+    expect(row + side).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
+  });
+
+  it('keeps side menus out of the phone menu (BR1.12)', () => {
+    const phone = NAV.slice(
+      NAV.indexOf('id="mobile-nav"'),
+      NAV.indexOf('</nav>', NAV.indexOf('id="mobile-nav"')),
+    );
+    expect(phone).not.toContain('submenu');
+    expect(phone).not.toContain('data-nav-side');
+  });
+
+  it('loads the side-menu script from the nav only, and cuts long track names in the Results menu (BR1.13, BR1.14)', () => {
+    const script = NAV.slice(NAV.indexOf('<script>'));
+    expect(script).toContain("import '../scripts/navSideMenus';");
+    expect(script).toContain("import { truncateLabel } from '../lib/truncateLabel';");
+    const render = script.slice(
+      script.indexOf('function renderNavRounds'),
+      script.indexOf('async function loadNavRounds'),
+    );
+    expect(render).toContain('truncateLabel(r.track)');
+    expect(render).toContain('track.textContent = label.text;');
+    expect(render).toContain('a.title = r.track;');
+    expect(render).toContain(
+      "a.setAttribute('aria-label', r.round !== null ? `Round ${r.round} ${r.track}` : r.track);",
+    );
+    const importers = Object.keys(ALL_SRC).filter((path) =>
+      /import ['"](?:\.\.\/)+scripts\/navSideMenus['"]/.test(ALL_SRC[path]),
+    );
+    expect(importers).toEqual(['/src/components/Nav.astro']);
   });
 });
 
@@ -191,14 +313,17 @@ describe('section pickers (BR6.5, BR6.6)', () => {
     expect(ADVANCED).not.toContain('Astro.url.search}');
   });
 
-  it('offers the three views in the View select, Compare first (points-calc FR1.1, FR1.5)', () => {
-    expect(ADVANCED_VIEWS).toEqual(['compare', 'contenders', 'irating']);
+  it('offers the four views in the View select, Compare first and Lineup Changes last (points-calc FR1.1, FR1.5; lineup-changes BR1.1)', () => {
+    expect(ADVANCED_VIEWS).toEqual(['compare', 'contenders', 'irating', 'lineups']);
     expect(ADVANCED_VIEWS.map((v) => ADVANCED_VIEW_LABELS[v])).toEqual([
       'Compare',
       'Points Contenders',
       'Series iRating',
+      'Lineup Changes',
     ]);
     expect(resolveAdvancedView('irating')).toBe('irating');
+    expect(resolveAdvancedView('lineups')).toBe('lineups');
+    expect(resolveAdvancedView('Lineups')).toBe('compare');
     // Points Scenarios is gone; its old links open Points Contenders.
     expect(resolveAdvancedView('scenarios')).toBe('contenders');
     expect(ADVANCED).not.toMatch(/Points Scenarios/);
@@ -217,9 +342,9 @@ describe('section pickers (BR6.5, BR6.6)', () => {
     expect(ADVANCED).not.toContain('data-calculator-reset');
     expect(ADVANCED).not.toContain('data-calculator-view-select');
     expect(ADVANCED).toContain('data-testid="rating-class-select"');
-    // The search box is the site's own, at the left end of the filter card right after the tabs.
+    // The search box is the site's own, right after the View select (irating-chart BR1.15).
     expect(ADVANCED).toMatch(
-      /<StatsTabs active="advanced" \/>\s*\{view === 'irating' && \(\s*<input\s+type="search"\s+aria-label="Search drivers"[^>]*class="search-input [^"]*"[^>]*data-rating-search/,
+      /<\/select>\s*\)\}\s*<\/label>\s*\{view === 'irating' && \(\s*<input\s+type="search"\s+aria-label="Search drivers"[^>]*class="search-input [^"]*"[^>]*data-rating-search/,
     );
     expect(ADVANCED).toContain('data-fragment-url={pointsFragmentUrl}');
     expect(ADVANCED).toContain('data-fragment-url={ratingsFragmentUrl}');

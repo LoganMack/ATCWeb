@@ -1,0 +1,96 @@
+id	circuit	layout	length_km	category
+0ef8bc71-750c-4f19-9036-1e4929c29b19	[Legacy] Phoenix Raceway - 2008	Road Course	2.43	roval
+bc4d6aef-0b57-4357-b5ef-4d5cab298d03	[Legacy] Texas Motor Speedway - 2009	Road Course Combined	3.66	roval
+daac346d-8f56-4209-8b94-216f583cad7f	Adelaide Street Circuit	N/A	3.66	street
+a2e3a576-3955-4414-b90e-a70787506db8	Algarve International Circuit	Grand Prix	4.59	road_long
+2783a07f-c624-41bd-b054-72af45538b66	Autódromo Hermanos Rodríguez	Grand Prix	4.3	road_long
+15185a9b-62b7-491b-94d0-33a20affb5d7	Autodromo Internazionale del Mugello	Grand Prix	5.24	road_long
+99f39314-8ec6-4616-8d39-9197f5b0a2fc	Autodromo Internazionale Enzo e Dino Ferrari	Grand Prix	4.9	road_long
+e2588e98-0b66-488c-a517-dadcfa2de3eb	Autódromo José Carlos Pace	Grand Prix	4.3	road_long
+9b999717-6b77-4e54-b8ea-e62a2c524b5c	Autodromo Nazionale Monza	Combined	9.99	roval
+cc43ebac-7216-4c5d-ac8b-98167d788100	Autodromo Nazionale Monza	Grand Prix	5.79	road_long
+6cd8ae4f-b199-42da-8eae-0626d1c87d0d	Autodromo Nazionale Monza	Junior	2.4	road_short
+80e850ae-17db-4b26-a122-5f3361bbd5bd	Barber Motorsports Park	Full Course	3.83	road_short
+09e16bd3-41f0-4bfa-b766-59477fb61662	Brands Hatch Circuit	Grand Prix	3.7	road_short
+08b08d5d-afb1-4689-ac9e-c8518fc2b3b1	Canadian Tire Motorsports Park	N/A	3.95	road_short
+c90c6498-a6af-4ff3-bff4-334c4ce30cbe	Charlotte Motor Speedway	Roval 2019	3.66	roval
+26a9fb3a-2706-4e87-bf1d-61fc7aebd7d2	Charlotte Motor Speedway	Roval 2025	3.66	roval
+da15c520-e7ee-48c0-b297-691f31560c64	Charlotte Motor Speedway	Roval No Chicanes	3.62	roval
+7fe0fd55-9e04-41a8-bc05-5610834d140b	Chicago Street Course	2023 Cup	3.44	street
+c52cd151-99e8-491d-aaf0-d2a04d24b6f4	Circuit de Lédenon	N/A	3.15	road_short
+e7ba0dc7-c976-4b55-8cc2-1fe202f61fd8	Circuit de Spa-Francorchamps	Bike	7	road_long
+3ce68ed8-43e3-475f-bef1-dd9912f55c4a	Circuit de Spa-Francorchamps	Grand Prix Pits	7	road_long
+1bb3183a-d7c3-45d5-873f-e42f9417b842	Circuit Gilles Villeneuve	N/A	4.36	road_long
+81920497-65a6-4e29-81ea-a43f6992d26d	Circuit of the Americas	Grand Prix	5.51	road_long
+3c88d92c-1804-4f20-9521-e4c2fe22fd9e	Circuit of the Americas	NASCAR West	3.86	road_short
+58bd3e34-0743-4017-856a-6cb717b48460	Circuit Park Zandvoort	Grand Prix	4.29	road_long
+ea821013-57f2-4198-bb96-808c81cf20b4	Circuit Zandvoort	Grand Prix	4.25	road_long
+575e96a0-4676-4fb2-b062-8d94c3dfaeaf	Circuit Zolder	Grand Prix	4.01	road_short
+45acc7d0-1e1c-4d7b-bb07-0fb48e98fa25	Daytona International Speedway	NASCAR Road	5.72	roval
+ef99e9ba-a986-4df9-915e-714d8fdf438f	Daytona International Speedway	Road Course	5.72	roval
+107a2b2e-a24c-448d-987b-a19d38331843	Daytona International Speedway	Road Course - 2008	5.72	roval
+9c3c3695-8bca-4f91-8228-a949a26832f2	Detroit Grand Prix at Belle Isle	Belle Isle	3.78	street
+f0db8a78-5b0d-4457-9c10-5bcab98f45a8	Donington Park Racing Circuit	Grand Prix	4.02	road_short
+1fcf9a4d-b636-4692-9a51-95bc7e882529	Donington Park Racing Circuit	National	3.14	road_short
+e3937de9-438b-487c-8810-55e7b60577b9	Fuji International Speedway	Grand Prix	4.55	road_long
+38af8e2f-c67c-4ead-8642-4b042b9a52ef	Fuji International Speedway	No Chicane	4.48	road_long
+1d00f963-67f2-4d3e-b3a0-965ad7fae151	Hockenheimring Baden-Württemberg	Grand Prix	4.57	road_long
+901333ea-7a37-404e-946b-54e089d9ff03	Hockenheimring Baden-Württemberg	National A	3.68	road_short
+a1a5a985-4701-4065-b0ef-303275e9ccde	Hockenheimring Baden-Württemberg	Outer	4.37	road_long
+8ecd4b74-7582-445f-9108-c005a946435e	Homestead Miami Speedway	Road Course B	3.7	roval
+a46f38b8-439c-4239-b299-288b4f37a562	Hungaroring	N/A	4.38	road_long
+c807f8f1-244d-4d74-a232-6324a9aef1c9	Indianapolis Motor Speedway	Bike - 2009	4.21	roval
+43728ebe-5c85-401f-9698-367aa163e811	Indianapolis Motor Speedway	Road Course - 2009	4.19	roval
+24c5a3bc-31b9-44cd-b22c-c96111558f25	Knockhill Racing Circuit	International	2.02	road_short
+17737d45-1057-4f66-b8f6-fe72d87234f8	Lime Rock Park	Classic	2.46	road_short
+54262563-013b-4517-9132-0a482b257de0	Lime Rock Park	Grand Prix	2.46	road_short
+e09c326d-b3c0-48dc-8552-f2b4b3e2b2bc	Lime Rock Park	West Bend Chicane	2.46	road_short
+32967b61-7dca-41d6-b702-6fd710acb114	Long Beach Street Circuit	N/A	3.16	street
+dd591b99-ee3b-41ae-91a6-2cac134fdb3e	Miami International Autodrome	Grand Prix	5.4	road_long
+a4cdd8db-fca3-4f89-862d-462722d58db9	Mid-Ohio Sports Car Course	Full Course	3.62	road_short
+eac9cf12-04dd-4047-9d31-fcb0a36ef900	Mobility Resort Motegi	East	3.39	road_short
+0ffdce2f-be5f-4a6c-832e-cbff835f1d05	Mobility Resort Motegi	Grand Prix	4.8	road_long
+3d4611d1-edf0-4fca-9fe9-c322886ce533	Motorsport Arena Oschersleben	Grand Prix	3.69	road_short
+09f8df1e-be1a-49d2-a4f3-3585b90ab790	Mount Panorama Circuit	N/A	6.21	street
+5963dccc-9b3b-44d7-aa0d-b368d5c7e635	New Hampshire Motor Speedway	Road Course with North Oval	2.55	roval
+3b8a05cc-b4d4-4539-b7c8-e902f5a9da91	New Hampshire Motor Speedway	Road Course with South Oval	2.49	roval
+f39694d0-0a4a-4a81-a877-3d8b725a31e6	Nürburgring Combined	Gesamtstrecke 24h	25.94	road_long
+a94d985f-e98d-4e1d-9bfa-8831e31b8326	Nürburgring Combined	Gesamtstrecke VLN	24.43	road_long
+abb92a7b-6132-4aab-ac02-ffe6f86f3fa3	Nürburgring Grand-Prix-Strecke	BES/WEC	5.06	road_long
+19ee5964-4f6e-4aa9-9e92-fef684be8ea6	Nürburgring Grand-Prix-Strecke	Sprintstrecke	3.62	road_short
+834e97dc-b403-4ced-947c-b07a64c5cf35	Okayama International Circuit	Full Course	3.72	road_short
+77d38907-8aef-4687-ac0d-66179b643b0c	Oran Park Raceway	Grand Prix	2.6	road_short
+4e66b8c9-8f26-4e15-b287-7fa8a16d2f7b	Oulton Park Circuit	International	4.33	road_long
+3b792414-48e4-4b86-9baa-117b247891a2	Oulton Park Circuit	Intl w/no Chicanes	4.33	road_long
+078aa83b-d19a-4823-94ba-2935eb25e90a	Oulton Park Circuit	Intl w/out Hislop	4.33	road_long
+9d43d847-1137-4ff2-b105-e028bef66bf0	Phillip Island Circuit	N/A	4.44	road_long
+140957b2-3dee-47ee-8341-b54a76a10c26	Portland International Raceway	Full Circuit	3.16	road_short
+c8687fad-1773-48e6-ad5f-c86404a2588d	Red Bull Ring	Grand Prix	4.31	road_long
+a40f3594-03c7-4e85-a04f-7ee170b77684	Red Bull Ring	National	2.33	road_short
+1a8aab11-890f-44c8-ab56-196fd50eedef	Road America	Bend	6.51	road_long
+55253934-aded-4215-8d6a-3912a659e22a	Road America	Full Course	6.51	road_long
+388166c4-d094-43e0-84f4-133153ec131a	Road Atlanta	Full Course	4.08	road_long
+516db701-8950-4f02-af09-c5542d80479a	Rudskogen Motorsenter	N/A	3.25	road_short
+080673dd-236a-4457-8b4c-f7b8d4d81bd2	Sandown International Motor Raceway	N/A	3.1	road_short
+8d88862b-0ec1-4f19-b401-72edf4f6427a	Sebring International Raceway	Club	2.81	road_short
+304e0477-7ce1-498f-b061-c8743506207c	Sebring International Raceway	International	6.01	road_long
+699ab7f6-6062-43cd-9f00-d2c20bae62c3	Sebring International Raceway	Modified	3.17	road_short
+5c890b27-b851-413e-8610-f6ca582da168	Silverstone Circuit	Grand Prix	5.89	road_long
+cbc26af1-8642-4b6f-8937-665e3b9885b2	Silverstone Circuit	National	2.63	road_short
+1ba81aca-2d9b-40cb-86dc-499c4cf6ed00	Sonoma Raceway	Cup Historic	4.07	road_long
+85f81a02-10e1-4a11-8749-7c629316544a	Sonoma Raceway	NASCAR Short	3.2	road_short
+61de31ee-c6fa-4e8d-83cc-a69ffcd393f0	Sonoma Raceway	Sportscar	4.07	road_long
+5b0f6f5b-79ae-4b3f-b9f6-791f65448fe4	St. Petersburg Grand Prix	Grand Prix	2.9	street
+b7c5d469-95a0-4da4-a36a-7d9cee34dd3c	Summit Point Raceway	Summit Point Raceway	3.18	road_short
+a9e0bc0a-0154-4fec-b03d-7a64cf00c992	Suzuka International Racing Course	East	2.24	road_short
+20b32e5b-c508-4cab-9b01-be30b329133b	Suzuka International Racing Course	Grand Prix	5.8	road_long
+24ce3af1-9f4a-4047-87e9-4ed6220079cd	Thruxton Circuit	N/A	3.79	road_short
+d49c1883-bc3d-43e4-9cf3-d32270d26513	Tsukuba Circuit	2000 Full	2.04	road_short
+780cfc11-f040-4303-9afe-b105d20b8d6f	Tsukuba Circuit	2000 Short	1.6	road_short
+fea90de2-4793-4b8a-8ebd-67249b6785d1	Virginia International Raceway	Full Course	5.26	road_long
+fa41b5b4-810d-4fdc-86e1-48e014907b42	Virginia International Raceway	Grand Course	6.55	road_long
+b83592cf-fa10-487e-8490-58658be2162b	Watkins Glen International	Boot	5.55	road_long
+1b74568c-5504-4c6d-a6a7-22750942f5f2	Watkins Glen International	Classic Boot	5.43	road_long
+d51688ac-67f1-43ef-80f9-1ce84cfba096	Watkins Glen International	Cup	3.94	road_short
+c3eed64e-3d85-4149-8ccd-be004fa3451e	WeatherTech Raceway at Laguna Seca	Full Course	3.6	road_short
+a432065d-4270-4921-9bdd-231eb035b009	World Wide Technology Raceway (Gateway)	Road Course	2.57	roval

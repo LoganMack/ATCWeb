@@ -94,6 +94,7 @@ const layouts: CircuitLayout[] = circuits.map((c, i) => ({
   lap_record_date: null,
   image_url: null,
   corners: 9 + i,
+  category: null,
 }));
 const teams: TeamBasic[] = [
   ...new Set(scores.map((s) => s.team_id).filter((t): t is string => t !== null)),

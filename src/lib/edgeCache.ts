@@ -19,6 +19,7 @@ const ROUTE_QUERY_PARAMS: [RegExp, string[]][] = [
   [/^\/advanced-stats\/points\/fragment$/, ['championship', 'season']],
   [/^\/advanced-stats\/ratings\/fragment$/, ['class']],
   [/^\/advanced-stats\/ratings\/history$/, ['class', 'driver']],
+  [/^\/advanced-stats\/lineups\/fragment$/, ['season']],
   [/^\/driver-stats(\/fragment)?$/, ['class']],
   [/^\/drivers\/[^/]+$/, ['profile_error', 'saved']],
   [/^\/drivers\/[^/]+\/fragment$/, ['hof']],
@@ -81,12 +82,14 @@ const ROUTE_PARAM_VALUES: [RegExp, Record<string, (value: string) => boolean>][]
       championship: isChampionshipValue,
       class: isClassFilterValue,
       season: isSeasonValue,
-      view: (value) => ['compare', 'contenders', 'irating'].includes(value),
+      view: (value) => ['compare', 'contenders', 'irating', 'lineups'].includes(value),
     },
   ],
   [/^\/advanced-stats\/points\/fragment$/, { championship: isChampionshipValue, season: isSeasonValue }],
   [/^\/advanced-stats\/ratings\/fragment$/, { class: isRatingClassValue }],
   [/^\/advanced-stats\/ratings\/history$/, { class: isRatingClassValue, driver: isRatingDriverKey }],
+  // Only a real season number gets its own copy; `all` and junk render the default season, so share the bare key.
+  [/^\/advanced-stats\/lineups\/fragment$/, { season: (value) => canonicalSeasonNumber(value) !== null }],
   // Overall and unknown values render as Overall (parseSeasonStatsScope), so they share the bare key.
   [/^\/season-stats(\/fragment)?$/, { class: (value) => ['alpha', 'gamma', 'delta'].includes(value) }],
 ];

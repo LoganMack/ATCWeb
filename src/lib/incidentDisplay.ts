@@ -67,9 +67,14 @@ export function incidentSummary(row: IncidentRow) {
   };
 }
 
-/** The popup's JSON block contents. "<" is escaped so a description can never close the <script> tag early. */
-export function incidentSummariesJson(rows: IncidentRow[]): string {
+/** The popup's data, keyed by incident id, before it is serialised. */
+export function incidentSummaryMap(rows: IncidentRow[]): Record<string, ReturnType<typeof incidentSummary>> {
   const summaries: Record<string, ReturnType<typeof incidentSummary>> = {};
   for (const row of rows) summaries[row.id] = incidentSummary(row);
-  return JSON.stringify(summaries).replace(/</g, '\\u003c');
+  return summaries;
+}
+
+/** The popup's JSON block contents. "<" is escaped so a description can never close the <script> tag early. */
+export function incidentSummariesJson(rows: IncidentRow[]): string {
+  return JSON.stringify(incidentSummaryMap(rows)).replace(/</g, '\\u003c');
 }
