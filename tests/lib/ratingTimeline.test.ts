@@ -4,7 +4,7 @@
  * broadcaster filter, U1's exclusion rule and failing closed). PostgREST is stubbed through fetch.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { buildTimelineSlots, type TimelineRoundRow } from '../../src/lib/rating/timeline';
+import { buildTimelineSlots, isMainSeasonName, type TimelineRoundRow } from '../../src/lib/rating/timeline';
 import { getRatingTimeline, RATING_TIMELINE_SELECT } from '../../src/lib/db/seriesRatings';
 import { ROUND_EVENT_CATEGORY_SELECT } from '../../src/lib/results/roundEligibility';
 import embedReads from '../../src/lib/embedReads.json';
@@ -65,7 +65,7 @@ describe('buildTimelineSlots', () => {
     round(101, 'ATC1'),
     round(102, 'ATC1'),
     round(150, 'ATC1'),
-    round(201, null),
+    round(201, 'ATC2'),
     round(301, 'ATC3'),
   ];
 
@@ -74,11 +74,31 @@ describe('buildTimelineSlots', () => {
       { i: 101, s: 'ATC1' },
       { i: 102, s: 'ATC1' },
       { i: 150, s: 'ATC1' },
-      { i: 201, s: '' },
+      { i: 201, s: 'ATC2' },
       { i: 301, s: 'ATC3' },
     ]);
     const reversed = [...rows].reverse();
     expect(buildTimelineSlots(reversed, new Set()).map((s) => s.i)).toEqual([301, 201, 150, 102, 101]);
+  });
+
+  it('leaves out rounds of side series and exhibition seasons, keeping only ATCn seasons', () => {
+    const mixed = [
+      round(101, 'ATC4'),
+      round(102, 'ATC4 Off-Season Fun Series'),
+      round(103, 'ATC Exhibitions'),
+      round(104, 'LCC1'),
+      round(105, 'ATC5'),
+    ];
+    expect(buildTimelineSlots(mixed, new Set())).toEqual([
+      { i: 101, s: 'ATC4' },
+      { i: 105, s: 'ATC5' },
+    ]);
+  });
+
+  it('recognises only ATC plus a number as a main season', () => {
+    for (const name of ['ATC1', 'ATC18', ' ATC21 ']) expect(isMainSeasonName(name), name).toBe(true);
+    for (const name of ['ATC Exhibitions', 'ATC4 Off-Season Fun Series', 'LCC1', 'atc5', 'ATC', '', null])
+      expect(isMainSeasonName(name), String(name)).toBe(false);
   });
 
   it('drops the excluded ids and never changes its inputs', () => {
@@ -89,13 +109,13 @@ describe('buildTimelineSlots', () => {
     expect([...excluded]).toEqual([150, 999]);
   });
 
-  it('maps a missing season to an empty name', () => {
-    expect(buildTimelineSlots([round(201, null)], new Set())).toEqual([{ i: 201, s: '' }]);
+  it('leaves out a round with no season', () => {
+    expect(buildTimelineSlots([round(201, null)], new Set())).toEqual([]);
   });
 
   it('gives a round with no rating points its slot anyway (it knows nothing of ratings)', () => {
     // 102 has no history points in any driver's chart; it still takes a slot.
-    expect(buildTimelineSlots([round(101, 'A'), round(102, 'A')], new Set())).toHaveLength(2);
+    expect(buildTimelineSlots([round(101, 'ATC1'), round(102, 'ATC1')], new Set())).toHaveLength(2);
   });
 
   it('gives an empty list for no rows', () => {
@@ -117,12 +137,9 @@ describe('buildTimelineSlots', () => {
   });
 
   it('keeps 300 slots with real-sized subsession ids under 9,000 bytes of JSON (NFR1)', () => {
-    // Eight-digit iRacing subsession ids and season names as long as today's, about 16 rounds a season.
+    // Eight-digit iRacing subsession ids and ATCn season names (the only ones kept), about 16 rounds a season.
     const rounds = Array.from({ length: 300 }, (_, k) =>
-      round(
-        80_000_000 + k * 1_237,
-        k >= 48 && k < 56 ? 'ATC4 Off-Season Fun Series' : `ATC${Math.floor(k / 16) + 1}`,
-      ),
+      round(80_000_000 + k * 1_237, `ATC${Math.floor(k / 16) + 1}`),
     );
     const json = JSON.stringify(buildTimelineSlots(rounds, new Set()));
     expect(JSON.parse(json)).toHaveLength(300);
