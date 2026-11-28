@@ -1,14 +1,15 @@
 /**
  * The Lineup Changes render model (U9, src/lib/lineups/board.ts): the empty-state messages and their order,
  * masking with board-local keys, car numbers per column, validated team colours, A to Z team order, line
- * endpoints and the summary (BR1.13 to BR1.23, US7.2, US7.4, US7.5).
+ * endpoints, the no-changes line and the Teams filter keys (BR1.13 to BR1.22, US7.2, US7.4, US7.5).
  */
 import { describe, expect, it } from 'vitest';
 import {
   buildLineupBoard,
   linePath,
   lineupMessage,
-  lineupSummary,
+  lineupNoChanges,
+  ROW_UNITS,
   type BoardInput,
   type LineupBoard,
   type LineupDriver,
@@ -101,10 +102,11 @@ describe('messages (BR1.13)', () => {
   });
 });
 
-describe('summary (BR1.14, BR1.23)', () => {
-  it('counts moves, joiners with returning, and leavers', () => {
-    expect(board().summary).toBe('1 moved team, 1 new to ATC (1 returning), 1 left ATC');
-    expect(board(input({}, [])).summary).toBe('1 moved team, 1 new to ATC, 1 left ATC');
+describe('no-changes line (BR1.14)', () => {
+  it('shows no counts line when something changed', () => {
+    const b = board();
+    expect(b.noChanges).toBeNull();
+    expect(b).not.toHaveProperty('summary');
   });
 
   it('says nothing changed, dims every row and draws no line when everyone stayed', () => {
@@ -115,12 +117,52 @@ describe('summary (BR1.14, BR1.23)', () => {
       teamName: (id) => id,
     });
     const b = board(input({ classified: stayed }));
-    expect(b.summary).toBe('No lineup changes from ATC17.');
+    expect(b.noChanges).toBe('No lineup changes from ATC17.');
     expect(b.lines).toEqual([]);
     expect([...b.left.groups, ...b.right.groups].flatMap((g) => g.seats).every((s) => s.key === null)).toBe(
       true,
     );
-    expect(lineupSummary([], 'ATC1')).toBe('No lineup changes from ATC1.');
+    expect(lineupNoChanges([], 'ATC1')).toBe('No lineup changes from ATC1.');
+  });
+});
+
+describe('team keys for the Teams filter', () => {
+  it('lists every team on the board A to Z, keyed t1, t2, ... with no team id', () => {
+    const b = board();
+    expect(b.teams).toEqual([
+      { key: 't1', name: 'apex Racing' },
+      { key: 't2', name: 'Redline' },
+      { key: 't3', name: 'Volt GP' },
+    ]);
+    expect(JSON.stringify(b.teams)).not.toMatch(/redline"|apex"|volt"/);
+  });
+
+  it('keys team groups by their team, and joiners and leavers by the team joined or left', () => {
+    const b = board();
+    expect(b.left.groups.map((g) => [g.name, g.teamKey])).toEqual([
+      ['apex Racing', 't1'],
+      ['Redline', 't2'],
+      ['Volt GP', 't3'],
+      ['New to ATC', null],
+    ]);
+    expect(b.right.groups.map((g) => g.teamKey)).toEqual(['t1', 't3', null]);
+    const seats = (groups: typeof b.left.groups) =>
+      Object.fromEntries(groups.flatMap((g) => g.seats).map((s) => [s.name, s.teamKey]));
+    // Ruiz moved Redline -> apex: Redline's key on the left, apex's on the right.
+    expect(seats(b.left.groups)).toEqual({ Carter: 't1', Ruiz: 't2', Lind: 't3', Petrov: 't3' });
+    expect(seats(b.right.groups)).toEqual({ Ruiz: 't1', Carter: 't1', Petrov: 't3', Lind: 't3' });
+    expect(b.cards.map((c) => c.teamKey)).toEqual(['t1', 't3']);
+  });
+
+  it('gives a leaver whose old team is unknown a null key, so the filter never hides them', () => {
+    const classified = [
+      ...input().classified,
+      { driverId: UUID.novak, status: 'left' as const, returning: false, fromTeamId: null, toTeamId: null },
+    ];
+    const b = board(input({ classified }));
+    const unknown = b.leftCard.find((s) => s.name === 'Unknown driver');
+    expect(unknown).toMatchObject({ teamKey: null, tag: 'was Unknown team' });
+    expect(b.teams.map((t) => t.name)).toEqual(['apex Racing', 'Redline', 'Volt GP']);
   });
 });
 
@@ -210,15 +252,17 @@ describe('masking (BR1.15, US7.5)', () => {
 describe('lines and labels (BR1.19, BR1.22)', () => {
   it('draws one line per change between the two seats, leavers dashed and grey', () => {
     const b = board();
-    // Left: apex (Carter 1.5) | gap | Redline (Ruiz 5.5) | gap | Volt (Lind 9.5) | gap | heading, Petrov 16.5.
-    // Right: apex (Ruiz 1.5, Carter 4.5) | gap | Volt (Petrov 8.5) | gap | heading, Lind 15.5.
+    // 5-unit rows and a 1-unit gap.
+    // Left: apex (Carter 2.5) | gap | Redline (Ruiz 8.5) | gap | Volt (Lind 14.5) | gap | heading, Petrov 25.5.
+    // Right: apex (Ruiz 2.5, Carter 7.5) | gap | Volt (Petrov 13.5) | gap | heading, Lind 24.5.
     expect(b.lines).toEqual([
-      { key: 'd1', y1: 5.5, y2: 1.5, colour: '#4369f5', dashed: false },
-      { key: 'd2', y1: 16.5, y2: 8.5, colour: null, dashed: false },
-      { key: 'd3', y1: 9.5, y2: 15.5, colour: null, dashed: true },
+      { key: 'd1', y1: 8.5, y2: 2.5, colour: '#4369f5', dashed: false },
+      { key: 'd2', y1: 25.5, y2: 13.5, colour: null, dashed: false },
+      { key: 'd3', y1: 14.5, y2: 24.5, colour: null, dashed: true },
     ]);
-    expect(b.height).toBe(18);
-    expect(linePath(b.lines[0])).toBe('M0 5.5 C50 5.5 50 1.5 100 1.5');
+    expect(b.height).toBe(28);
+    expect(ROW_UNITS).toBe(5);
+    expect(linePath(b.lines[0])).toBe('M0 8.5 C50 8.5 50 2.5 100 2.5');
   });
 
   it('gives every changed seat a sentence and a label, so a move is never colour-only', () => {

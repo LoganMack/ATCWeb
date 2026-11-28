@@ -48,6 +48,8 @@ export class FakeElement {
   value = '';
   clientWidth = 0;
   open = false;
+  /** A checkbox's partly-ticked state: a property only, as in a real document. */
+  indeterminate = false;
   private ownText = '';
 
   constructor(

@@ -91,8 +91,8 @@
   },
   {
     "file": "src/pages/advanced-stats/lineups/fragment.astro",
-    "classes": ["border-[color:var(--team,rgb(var(--fg)/0.2))]", "self-stretch"],
-    "reason": "Lineup Changes: each seat row's team stripe takes the team's validated colour, else the muted foreground, in both themes (lineup-changes BR1.20)."
+    "classes": ["bg-[rgb(var(--fg)/0.06)]"],
+    "reason": "Lineup Changes: the New to ATC and Left ATC groups, and a team with no colour, sit on a neutral block from the foreground token in both themes, in place of the removed team stripes (lineup-board-polish FR3)."
   },
   {
     "file": "src/pages/advanced-stats/lineups/fragment.astro",

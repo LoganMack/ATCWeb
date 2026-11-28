@@ -8,10 +8,11 @@ import { linePath, type LineupBoard, type Seat } from '../../../lib/lineups/boar
 import { loadLineups } from '../../../lib/lineups/load';
 
 /**
- * Lineup Changes for the advanced-stats.astro shell (U9, design A): the board from 768px up, team cards below
- * that, or one message. All data comes from loadLineups; driver ids stay on the server, so seats carry only a
- * board-local key and a profile link for visible drivers. The highlight is src/scripts/lineupBoard.ts, which
- * the shell imports (a script in fetched fragment HTML never runs). Never linked directly.
+ * Lineup Changes for the advanced-stats.astro shell (U9): the board from 768px up (full window width, each
+ * team's rows on one block of its colour), team cards below that, or one message. All data comes from
+ * loadLineups; ids stay on the server, so seats carry only a board-local key, a team key (t1, t2, ...) and a
+ * profile link for visible drivers. The highlight and Teams filter are src/scripts/lineupBoard.ts, imported by
+ * the shell (a script in fetched fragment HTML never runs); data-lineup-teams feeds its list. Never linked.
  */
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
@@ -27,7 +28,9 @@ try {
 
 // A team colour reaches markup only as this validated custom property (BR1.20); fallbacks use the --fg token.
 const teamStyle = (colour: string | null) => (colour ? `--team:${colour}` : undefined);
-const stripe = 'self-stretch border-[color:var(--team,rgb(var(--fg)/0.2))]';
+// About 25% of the team colour over the page, so text stays readable in both themes.
+const teamBlock = 'bg-[color:color-mix(in_srgb,var(--team)_25%,transparent)]';
+const neutralBlock = 'bg-[rgb(var(--fg)/0.06)]';
 const tagClass = 'flex-none rounded-md border border-white/15 px-1.5 text-xs text-white/70';
 const fade = 'motion-safe:transition-opacity motion-safe:duration-150';
 // A changed driver with no profile link still needs a keyboard stop for the highlight (NFR5.1).
@@ -47,23 +50,40 @@ if (loadError) markUncacheable(Astro);
 
     {board.kind === 'board' && (
       <>
-        <figure class="mt-6 hidden md:block" data-lineup-board>
+        <ul class="hidden" data-lineup-teams>
+          {board.teams.map((team) => <li data-team={team.key}>{team.name}</li>)}
+        </ul>
+
+        <figure
+          class="mt-6 hidden md:relative md:left-1/2 md:block md:w-[calc(100vw-3rem)] md:-translate-x-1/2"
+          aria-label={`Lineup changes from ${board.previousLabel} to ${board.currentLabel}`}
+          data-lineup-board
+          data-testid="lineup-board"
+        >
           <p class="h-5 text-sm text-white/80" aria-hidden="true" data-lineup-label></p>
           <div class="mt-2 grid grid-cols-[minmax(0,1fr)_3rem_minmax(0,1fr)] lg:grid-cols-[minmax(0,1fr)_6rem_minmax(0,1fr)]">
             <h3 class="col-start-1 row-start-1 mb-2 font-display text-xl">{board.previousLabel}</h3>
             <h3 class="col-start-3 row-start-1 mb-2 text-right font-display text-xl">{board.currentLabel}</h3>
+            <p class="col-span-3 row-start-3 hidden text-sm text-white/60" data-lineup-none data-testid="lineup-none">No teams selected.</p>
             {[
               { side: 'left', label: board.previousLabel, column: board.left },
               { side: 'right', label: board.currentLabel, column: board.right },
             ].map(({ side, label, column }) => (
               <ul
                 aria-label={`${label} lineups`}
-                class:list={['row-start-2', side === 'left' ? 'col-start-1' : 'col-start-3']}
+                data-lineup-column={side}
+                class:list={['row-start-2 flex flex-col gap-1', side === 'left' ? 'col-start-1' : 'col-start-3']}
               >
                 {column.groups.map((group) => (
-                  <li data-group style={teamStyle(group.colour)} class="mt-3 first:mt-0">
+                  <li
+                    data-group={group.kind}
+                    data-team={group.teamKey ?? undefined}
+                    data-testid="lineup-team-block"
+                    style={teamStyle(group.colour)}
+                    class:list={[group.colour ? teamBlock : neutralBlock]}
+                  >
                     {group.kind !== 'team' && (
-                      <p class="flex h-9 items-center px-2 text-xs font-semibold uppercase tracking-wide text-white/60">
+                      <p class="flex h-5 items-center px-2 text-xs font-semibold uppercase tracking-wide text-white/60">
                         {group.name}
                       </p>
                     )}
@@ -73,25 +93,20 @@ if (loadError) markUncacheable(Astro);
                           data-seat
                           data-key={seat.key ?? undefined}
                           data-label={seat.label || undefined}
+                          data-team={seat.teamKey ?? undefined}
                           tabindex={seatTabIndex(seat)}
                           class:list={[
-                            'list-row flex h-9 items-center gap-2 px-2',
+                            'flex h-5 items-center gap-2 px-2 text-xs',
                             fade,
                             seat.status === 'stayed' && 'text-white/60',
                           ]}
                         >
-                          {side === 'left' && (
-                            <span
-                              aria-hidden="true"
-                              class:list={[stripe, 'border-l-4', seat.status === 'stayed' && 'opacity-40']}
-                            ></span>
-                          )}
                           {group.kind === 'team' && i === 0 ? (
-                            <TeamLogo name={group.name} logoUrl={group.logoUrl} size="h-6 w-6" />
+                            <TeamLogo name={group.name} logoUrl={group.logoUrl} size="h-4 w-4" />
                           ) : (
-                            <span class="h-6 w-6 flex-none" aria-hidden="true"></span>
+                            <span class="h-4 w-4 flex-none" aria-hidden="true"></span>
                           )}
-                          <span class="w-7 flex-none text-right tabular-nums text-white/60">{seat.number ?? ''}</span>
+                          <span class="w-6 flex-none text-right tabular-nums text-white/60">{seat.number ?? ''}</span>
                           <span class="min-w-0 truncate">
                             {seat.href ? (
                               <a href={seat.href} class="driver-link" title="Click to view profile">{seat.name}</a>
@@ -103,12 +118,6 @@ if (loadError) markUncacheable(Astro);
                           {group.kind === 'joined' && seat.tag === 'returning' && <span class={tagClass}>returning</span>}
                           {group.kind === 'team' && i === 0 && (
                             <span class="ml-auto min-w-0 truncate text-xs text-white/60" title={group.name}>{group.name}</span>
-                          )}
-                          {side === 'right' && (
-                            <span
-                              aria-hidden="true"
-                              class:list={[stripe, 'border-r-4', group.kind === 'team' && i === 0 ? 'ml-2' : 'ml-auto', seat.status === 'stayed' && 'opacity-40']}
-                            ></span>
                           )}
                         </li>
                       ))}
@@ -123,6 +132,7 @@ if (loadError) markUncacheable(Astro);
                 class="absolute inset-0 h-full w-full"
                 viewBox={`0 0 100 ${board.height}`}
                 preserveAspectRatio="none"
+                data-lineup-lines
               >
                 {board.lines.map((line) => (
                   <path
@@ -139,13 +149,14 @@ if (loadError) markUncacheable(Astro);
               </svg>
             </div>
           </div>
-          <figcaption class="mt-4 text-sm text-white/60">{board.summary}</figcaption>
         </figure>
 
         <div class="mt-6 space-y-3 md:hidden" data-lineup-cards>
+          <p class="hidden text-sm text-white/60" data-lineup-none data-testid="lineup-cards-none">No teams selected.</p>
           {board.cards.map((card) => (
             <section
               style={teamStyle(card.colour)}
+              data-team={card.teamKey ?? undefined}
               class="rounded-xl border border-t-4 border-white/10 border-t-[color:var(--team,rgb(var(--fg)/0.2))] bg-white/[0.02] p-3"
             >
               <h3 class="flex items-center gap-2 font-semibold">
@@ -166,11 +177,11 @@ if (loadError) markUncacheable(Astro);
             </section>
           ))}
           {board.leftCard.length > 0 && (
-            <section class="rounded-xl border border-t-4 border-white/10 border-t-white/20 bg-white/[0.02] p-3">
+            <section class="rounded-xl border border-t-4 border-white/10 border-t-white/20 bg-white/[0.02] p-3" data-lineup-left-card>
               <h3 class="font-semibold">Left ATC</h3>
               <ul class="mt-2 space-y-1 text-sm">
                 {board.leftCard.map((seat) => (
-                  <li class="flex items-center gap-2">
+                  <li class="flex items-center gap-2" data-team={seat.teamKey ?? undefined}>
                     <span class="w-8 flex-none tabular-nums text-white/60">{seat.number !== null ? `#${seat.number}` : ''}</span>
                     <span class="min-w-0 truncate">
                       {seat.href ? <a href={seat.href} class="driver-link">{seat.name}</a> : seat.name}
@@ -181,8 +192,9 @@ if (loadError) markUncacheable(Astro);
               </ul>
             </section>
           )}
-          <p class="text-sm text-white/60">{board.summary}</p>
         </div>
+
+        {board.noChanges && <p class="mt-4 text-sm text-white/60" data-testid="lineup-no-changes">{board.noChanges}</p>}
       </>
     )}
   </section>

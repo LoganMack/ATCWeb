@@ -1,12 +1,16 @@
 /**
  * The Lineup Changes render model (U9, BR1.13 to BR1.23): the empty-state message, or the two columns, the
- * lines between them, the phone cards and the summary. Pure. Driver ids stay here: a seat carries a board-local
- * key (d1, d2, ...) and a profile link only for a visible driver, so a hidden driver's id never reaches markup.
+ * lines between them, the phone cards and the team list for the Teams filter. Pure. Driver and team ids stay
+ * here: a seat carries a board-local key (d1, d2, ...) and a profile link only for a visible driver, so a hidden
+ * driver's id never reaches markup, and teams are keyed t1, t2, ... for the filter.
  */
 import { normaliseLogoColour } from '../circuitCategory';
 import { driverHref, HIDDEN_DRIVER_NAME } from '../privacy';
 import { resolveTeamLogo } from '../results/rows';
 import type { Classified, LineupSeason, LineupStatus } from './classify';
+import { placeRows } from './geometry';
+
+export { GAP_UNITS, linePath, ROW_UNITS } from './geometry';
 
 export interface LineupTeam {
   id: string;
@@ -45,10 +49,17 @@ export interface Seat {
   label: string;
   /** Row centre, in row units. */
   y: number;
+  /**
+   * The team the Teams filter hides this seat with: its group's team, the team joined (New to ATC) or the
+   * team left (Left ATC); null when that team is unknown, so the seat is never filtered out.
+   */
+  teamKey: string | null;
 }
 
 export interface Group {
   kind: 'team' | 'joined' | 'left';
+  /** The team's filter key for a team group; null for New to ATC and Left ATC. */
+  teamKey: string | null;
   name: string;
   /** Validated #rrggbb, else null (the muted token). */
   colour: string | null;
@@ -58,6 +69,11 @@ export interface Group {
 
 export interface Column {
   groups: Group[];
+}
+
+export interface BoardTeam {
+  key: string;
+  name: string;
 }
 
 export interface Line {
@@ -77,7 +93,10 @@ export type LineupBoard =
       left: Column;
       right: Column;
       lines: Line[];
-      summary: string;
+      /** "No lineup changes from ATC17." when nothing changed (BR1.14), else null. */
+      noChanges: string | null;
+      /** Every team on the board, A to Z, for the Teams filter. */
+      teams: BoardTeam[];
       cards: Group[];
       leftCard: Seat[];
       height: number;
@@ -93,10 +112,6 @@ export interface BoardInput {
   previousNumbers: readonly SeasonCarNumber[];
   seasonLogos: Map<string, string>;
 }
-
-/** A seat row is 3 units tall (h-9) and the gap between groups 1 unit (mt-3), so geometry holds at any zoom. */
-export const ROW_UNITS = 3;
-export const GAP_UNITS = 1;
 
 export const JOINED_GROUP_NAME = 'New to ATC';
 export const LEFT_GROUP_NAME = 'Left ATC';
@@ -118,23 +133,9 @@ export function lineupMessage(
   return null;
 }
 
-/** The counts under the board (BR1.23), or the no-changes line (BR1.14). */
-export function lineupSummary(classified: readonly Classified[], previousName: string): string {
-  const count = (status: LineupStatus) => classified.filter((c) => c.status === status).length;
-  const moved = count('moved');
-  const joined = count('joined');
-  const left = count('left');
-  if (moved + joined + left === 0) return `No lineup changes from ${previousName}.`;
-  const returning = classified.filter((c) => c.status === 'joined' && c.returning).length;
-  const returningText = returning > 0 ? ` (${returning} returning)` : '';
-  return `${moved} moved team, ${joined} new to ATC${returningText}, ${left} left ATC`;
-}
-
-/** An SVG path from the left edge at y1 to the right edge at y2, in the board's 100-wide viewBox. */
-export function linePath(line: Pick<Line, 'y1' | 'y2'>): string {
-  const y1 = line.y1.toFixed(1);
-  const y2 = line.y2.toFixed(1);
-  return `M0 ${y1} C50 ${y1} 50 ${y2} 100 ${y2}`;
+/** The one line kept from the old counts (BR1.14): it says an empty board is empty on purpose. */
+export function lineupNoChanges(classified: readonly Classified[], previousName: string): string | null {
+  return classified.some((c) => c.status !== 'stayed') ? null : `No lineup changes from ${previousName}.`;
 }
 
 const prevTeamOf = (c: Classified) => (c.status === 'stayed' ? c.toTeamId : c.fromTeamId);
@@ -180,11 +181,13 @@ export function buildLineupBoard(input: BoardInput): LineupBoard {
     (a, b) => teamName(a).toLowerCase().localeCompare(teamName(b).toLowerCase()) || a.localeCompare(b),
   );
   const position = new Map(order.map((id, i) => [id, i]));
+  const teamKeys = new Map(order.map((id, i) => [id, `t${i + 1}`]));
+  const teamKeyOf = (id: string | null) => (id ? (teamKeys.get(id) ?? null) : null);
 
   const keys = new Map<string, string>();
   for (const c of classified) if (c.status !== 'stayed') keys.set(c.driverId, `d${keys.size + 1}`);
 
-  function seat(c: Classified, numbers: Map<string, number>): Seat {
+  function seat(c: Classified, numbers: Map<string, number>, teamId: string | null): Seat {
     const shown = drivers.get(c.driverId);
     const hidden = shown?.is_hidden === true;
     const name = !shown ? UNKNOWN_DRIVER : hidden ? HIDDEN_DRIVER_NAME : shown.name;
@@ -217,6 +220,7 @@ export function buildLineupBoard(input: BoardInput): LineupBoard {
       status: c.status,
       ...text,
       y: 0,
+      teamKey: teamKeyOf(teamId),
     };
   }
 
@@ -228,12 +232,13 @@ export function buildLineupBoard(input: BoardInput): LineupBoard {
     return order
       .map((id): Group => ({
         kind: 'team',
+        teamKey: teamKeyOf(id),
         name: teamName(id),
         colour: colourOf(id),
         logoUrl: logoOf(id, seasonId),
         seats: classified
           .filter((c) => member(c) === id)
-          .map((c) => seat(c, numbers))
+          .map((c) => seat(c, numbers, id))
           .sort(byNumberThenName),
       }))
       .filter((g) => g.seats.length > 0);
@@ -246,11 +251,13 @@ export function buildLineupBoard(input: BoardInput): LineupBoard {
   ) {
     const seats = classified
       .filter((c) => c.status === kind)
-      .map((c) => ({ pos: position.get(teamOf(c) ?? '') ?? order.length, seat: seat(c, numbers) }))
+      .map((c) => ({ pos: position.get(teamOf(c) ?? '') ?? order.length, seat: seat(c, numbers, teamOf(c)) }))
       .sort((a, b) => a.pos - b.pos || byNumberThenName(a.seat, b.seat))
       .map((s) => s.seat);
     const name = kind === 'joined' ? JOINED_GROUP_NAME : LEFT_GROUP_NAME;
-    return seats.length > 0 ? [{ kind, name, colour: null, logoUrl: null, seats } satisfies Group] : [];
+    return seats.length > 0
+      ? [{ kind, teamKey: null, name, colour: null, logoUrl: null, seats } satisfies Group]
+      : [];
   }
 
   // Left: S-1's teams, then the joiners (with S numbers). Right: S's teams, then the leavers (with S-1 numbers).
@@ -287,28 +294,21 @@ export function buildLineupBoard(input: BoardInput): LineupBoard {
     left: { groups: leftGroups },
     right: { groups: rightGroups },
     lines,
-    summary: lineupSummary(classified, previous.name),
+    noChanges: lineupNoChanges(classified, previous.name),
+    teams: order.map((id) => ({ key: teamKeys.get(id) ?? '', name: teamName(id) })),
     cards: rightGroups.filter((g) => g.kind === 'team'),
     leftCard: rightGroups.find((g) => g.kind === 'left')?.seats ?? [],
     height: Math.max(leftHeight, rightHeight),
   };
 }
 
-/**
- * Sets each seat's row centre and returns the column height. The "New to ATC" and "Left ATC" groups open with
- * a heading row of the same height as a seat.
- */
+/** Sets each seat's row centre and returns the column height (placeRows, the rule the filter's relayout uses). */
 function place(groups: Group[]): number {
-  let y = 0;
-  groups.forEach((group, i) => {
-    if (i > 0) y += GAP_UNITS;
-    if (group.kind !== 'team') y += ROW_UNITS;
-    for (const s of group.seats) {
-      s.y = y + ROW_UNITS / 2;
-      y += ROW_UNITS;
-    }
-  });
-  return y;
+  const { centres, height } = placeRows(
+    groups.map((g) => ({ heading: g.kind !== 'team', rows: g.seats.length })),
+  );
+  groups.forEach((g, i) => g.seats.forEach((s, j) => (s.y = centres[i][j])));
+  return height;
 }
 
 function seatYByKey(groups: Group[]): Map<string, number> {
