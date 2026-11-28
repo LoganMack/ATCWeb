@@ -61,7 +61,8 @@ if (loadError) markUncacheable(Astro);
           data-testid="lineup-board"
         >
           <p class="h-5 text-sm text-white/80" aria-hidden="true" data-lineup-label></p>
-          <div class="mt-2 grid grid-cols-[minmax(0,1fr)_3rem_minmax(0,1fr)] lg:grid-cols-[minmax(0,1fr)_6rem_minmax(0,1fr)]">
+          {/* Each column keeps its old page-column width (31.5rem); the extra window width goes to the lines between them. */}
+          <div class="mt-2 grid grid-cols-[minmax(0,31.5rem)_minmax(3rem,1fr)_minmax(0,31.5rem)]">
             <h3 class="col-start-1 row-start-1 mb-2 font-display text-xl">{board.previousLabel}</h3>
             <h3 class="col-start-3 row-start-1 mb-2 text-right font-display text-xl">{board.currentLabel}</h3>
             <p class="col-span-3 row-start-3 hidden text-sm text-white/60" data-lineup-none data-testid="lineup-none">No teams selected.</p>

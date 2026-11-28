@@ -124,6 +124,8 @@ describe('the board polish (full width, dense rows, team blocks, no counts line)
       '<h2 id="lineups-heading" class="font-display text-2xl sm:text-3xl">Lineup Changes</h2>',
     );
     expect(FRAGMENT.indexOf('<h2')).toBeLessThan(FRAGMENT.indexOf('<figure'));
+    // The columns keep their page-column width; the extra width spreads the lines out.
+    expect(FRAGMENT).toContain('grid-cols-[minmax(0,31.5rem)_minmax(3rem,1fr)_minmax(0,31.5rem)]');
     // The filter card keeps its own classes.
     expect(SHELL).toContain(
       'class="reveal mt-12 relative z-30 rounded-xl border border-white/10 bg-brand-ink p-4"',
