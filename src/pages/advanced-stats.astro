@@ -39,8 +39,8 @@ import { RATING_KIND_LABELS, RATING_KINDS, resolveRatingKind } from '../lib/db/s
 // advanced-stats/fragment.astro; Points Contenders reads the calculator fragment
 // (advanced-stats/points/fragment.astro), drawn by src/scripts/pointsCalculator.ts, whose Scenario Editor
 // button sits in this filter card; Series iRating reads advanced-stats/ratings/fragment.astro, searched from
-// this filter card; Lineup Changes reads advanced-stats/lineups/fragment.astro, highlighted by
-// src/scripts/lineupBoard.ts. The shell reads only the filter lists. Compare's slot picks (a-d) live only in the address
+// this filter card; Lineup Changes reads advanced-stats/lineups/fragment.astro, highlighted and filtered by
+// this card's Teams dropdown through src/scripts/lineupBoard.ts. The shell reads only the filter lists. Compare's slot picks (a-d) live only in the address
 // and the browser, so its selects carry them through compareView.ts (data-compare-nav).
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
@@ -245,6 +245,48 @@ if (loadError) markUncacheable(Astro);
                 ))}
               </select>
             </label>
+          )}
+          {view === 'lineups' && (
+            <div class="flex flex-col gap-1.5 sm:w-44" data-lineup-team-dropdown data-testid="lineup-team-filter">
+              <span class={labelClass} id="lineup-team-heading">Teams</span>
+              <div class="relative">
+                <button
+                  type="button"
+                  aria-haspopup="true"
+                  aria-expanded="false"
+                  aria-labelledby="lineup-team-heading lineup-team-label"
+                  class="flex h-9 w-full items-center justify-between gap-2 rounded-md border border-white/15 bg-transparent px-3 text-left text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5 disabled:opacity-50"
+                  data-lineup-team-toggle
+                  data-testid="lineup-team-toggle"
+                  disabled
+                >
+                  <span id="lineup-team-label" class="truncate" data-lineup-team-label>All teams</span>
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" class="flex-none text-white/40" aria-hidden="true">
+                    <path d="m6 9 6 6 6-6" />
+                  </svg>
+                </button>
+                <div
+                  class="absolute right-0 z-10 mt-1 hidden w-full min-w-[14rem] rounded-md border border-white/15 bg-brand-ink p-1.5 shadow-lg"
+                  data-lineup-team-panel
+                  data-testid="lineup-team-panel"
+                >
+                  <input
+                    type="search"
+                    aria-label="Search teams"
+                    placeholder="Search teams…"
+                    autocomplete="off"
+                    class="search-input mb-1 h-8 rounded-md border border-white/15 bg-transparent px-2 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5"
+                    data-lineup-team-search
+                    data-testid="lineup-team-search"
+                  />
+                  <label class="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm font-semibold text-white/80 hover:bg-white/10">
+                    <input type="checkbox" checked data-lineup-team-all data-testid="lineup-team-all" />
+                    Select All
+                  </label>
+                  <div class="max-h-64 overflow-y-auto" data-lineup-team-list data-testid="lineup-team-list"></div>
+                </div>
+              </div>
+            </div>
           )}
         </div>
       </div>

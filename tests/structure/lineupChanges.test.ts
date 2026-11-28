@@ -89,9 +89,11 @@ describe('the lineups fragment (BR1.15, BR1.20, NFR2.2, NFR3.3)', () => {
     expect(FRAGMENT).toContain('<LoadError />');
   });
 
-  it('marks up the board for screen readers: a figure, labelled lists, and a hidden SVG and label line', () => {
-    expect(FRAGMENT).toMatch(/<figure class="[^"]*hidden md:block" data-lineup-board>/);
-    expect(FRAGMENT).toContain('<figcaption');
+  it('marks up the board for screen readers: a labelled figure, labelled lists, and a hidden SVG and label line', () => {
+    expect(FRAGMENT).toMatch(/<figure\s+class="[^"]*\bhidden\b[^"]*\bmd:block\b[^"]*"/);
+    expect(FRAGMENT).toContain(
+      'aria-label={`Lineup changes from ${board.previousLabel} to ${board.currentLabel}`}',
+    );
     expect(FRAGMENT).toContain('aria-label={`${label} lineups`}');
     expect(FRAGMENT).toMatch(/<svg\s+aria-hidden="true"/);
     expect(FRAGMENT).toMatch(/aria-hidden="true" data-lineup-label/);
@@ -99,9 +101,94 @@ describe('the lineups fragment (BR1.15, BR1.20, NFR2.2, NFR3.3)', () => {
     expect(FRAGMENT).toContain('data-lineup-cards');
   });
 
-  it('keeps the highlight script to textContent, with no fetch or innerHTML', () => {
+  it('keeps the highlight and filter script to createElement and textContent, with no fetch or innerHTML', () => {
     const script = SRC['/src/scripts/lineupBoard.ts'];
     expect(script).toContain('textContent');
-    expect(script).not.toMatch(/innerHTML|fetch\(/);
+    expect(script).toContain("document.createElement('input')");
+    expect(script).not.toMatch(/innerHTML|insertAdjacentHTML|fetch\(/);
+    // Only the import-free geometry module reaches the browser, never the server-side board code.
+    expect(script).toContain("from '../lib/lineups/geometry';");
+    expect(script).not.toMatch(/lib\/lineups\/(board|load|classify)/);
+    expect(SRC['/src/lib/lineups/geometry.ts']).not.toMatch(/^import /m);
+  });
+});
+
+describe('the board polish (full width, dense rows, team blocks, no counts line)', () => {
+  const figure = FRAGMENT.slice(FRAGMENT.indexOf('<figure'), FRAGMENT.indexOf('</figure>'));
+
+  it('breaks the board out of the page column from md up, while the title stays in it', () => {
+    expect(FRAGMENT).toMatch(
+      /<figure\s+class="[^"]*md:relative md:left-1\/2 md:block md:w-\[calc\(100vw-3rem\)\] md:-translate-x-1\/2"/,
+    );
+    expect(FRAGMENT).toContain(
+      '<h2 id="lineups-heading" class="font-display text-2xl sm:text-3xl">Lineup Changes</h2>',
+    );
+    expect(FRAGMENT.indexOf('<h2')).toBeLessThan(FRAGMENT.indexOf('<figure'));
+    // The filter card keeps its own classes.
+    expect(SHELL).toContain(
+      'class="reveal mt-12 relative z-30 rounded-xl border border-white/10 bg-brand-ink p-4"',
+    );
+  });
+
+  it('draws seats as h-5 text-xs rows with 16px logos, a gap-1 column and no colour stripes', () => {
+    expect(figure).toContain("'flex h-5 items-center gap-2 px-2 text-xs'");
+    expect(figure).toContain('size="h-4 w-4"');
+    expect(figure).toContain("'row-start-2 flex flex-col gap-1'");
+    expect(figure).not.toMatch(/h-9|h-6 w-6|border-[lr]-4|\bstripe\b|mt-3/);
+  });
+
+  it('puts each group on one block of its team colour from --team, else a neutral block', () => {
+    expect(FRAGMENT).toContain(
+      "const teamBlock = 'bg-[color:color-mix(in_srgb,var(--team)_25%,transparent)]';",
+    );
+    expect(FRAGMENT).toContain("const neutralBlock = 'bg-[rgb(var(--fg)/0.06)]';");
+    // Square corners: one solid block per team, as the owner asked.
+    expect(figure).toContain('class:list={[group.colour ? teamBlock : neutralBlock]}');
+    expect(figure).toMatch(/data-group=\{group\.kind\}\s+data-team=\{group\.teamKey \?\? undefined\}/);
+    expect(figure).toContain('data-team={seat.teamKey ?? undefined}');
+  });
+
+  it('drops the counts line under the board and the phone cards, keeping only the no-changes line', () => {
+    expect(FRAGMENT).not.toContain('<figcaption');
+    expect(FRAGMENT).not.toContain('.summary');
+    for (const [path, text] of LIB) expect(text, path).not.toMatch(/moved team|lineupSummary/);
+    expect(FRAGMENT).toContain('{board.noChanges && <p');
+    expect(FRAGMENT.match(/data-lineup-none/g)).toHaveLength(2);
+    expect(FRAGMENT).toContain('<ul class="hidden" data-lineup-teams>');
+    expect(FRAGMENT).toMatch(/data-team=\{card\.teamKey \?\? undefined\}/);
+    expect(FRAGMENT).toContain('data-lineup-left-card');
+  });
+});
+
+describe('the Teams filter in the shell', () => {
+  const at = SHELL.indexOf('data-testid="lineup-season-select"');
+  const teams = SHELL.slice(
+    SHELL.indexOf('data-lineup-team-dropdown'),
+    SHELL.indexOf("{!loadError && view === 'compare'"),
+  );
+
+  it('sits after the lineups Season select, on that view only', () => {
+    expect(at).toBeGreaterThan(-1);
+    expect(SHELL.indexOf('data-lineup-team-dropdown')).toBeGreaterThan(at);
+    expect(SHELL).toMatch(
+      /\{view === 'lineups' && \(\s*<div class="flex flex-col gap-1\.5 sm:w-44" data-lineup-team-dropdown/,
+    );
+    expect(SHELL.match(/data-lineup-team-dropdown/g)).toHaveLength(1);
+  });
+
+  it('has a disabled toggle, a hidden panel with a search box, a checked Select All and an empty list', () => {
+    expect(teams).toMatch(
+      /<button[^>]*aria-haspopup="true"[^>]*aria-expanded="false"[^>]*data-lineup-team-toggle[^>]*disabled\s*>/,
+    );
+    expect(teams).toContain('>All teams</span>');
+    expect(teams).toMatch(/class="absolute [^"]*\bhidden\b[^"]*"\s+data-lineup-team-panel/);
+    expect(teams).toMatch(/<input\s+type="search"\s+aria-label="Search teams"/);
+    expect(teams).toContain(
+      '<input type="checkbox" checked data-lineup-team-all data-testid="lineup-team-all" />',
+    );
+    expect(teams).toContain('Select All');
+    expect(teams).toMatch(/<div class="[^"]*" data-lineup-team-list data-testid="lineup-team-list"><\/div>/);
+    for (const id of ['lineup-team-toggle', 'lineup-team-panel', 'lineup-team-search', 'lineup-team-all'])
+      expect(teams).toContain(`data-testid="${id}"`);
   });
 });

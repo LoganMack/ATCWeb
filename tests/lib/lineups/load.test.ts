@@ -83,7 +83,8 @@ describe('loadLineups', () => {
     expect(paths[6]).toBe('drivers_shown?select=id,name,car_number,is_hidden&id=in.(d-carter,d-ruiz)');
     expect(paths.some((p) => /^drivers\?/.test(p))).toBe(false);
     if (board.kind === 'board') {
-      expect(board.summary).toBe('1 moved team, 0 new to ATC, 0 left ATC');
+      expect(board.noChanges).toBeNull();
+      expect(board.teams.map((t) => t.name)).toEqual(['Apex', 'Redline']);
       expect(JSON.stringify(board)).not.toContain('d-ruiz');
     }
   });
